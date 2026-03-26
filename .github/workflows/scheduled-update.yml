@@ -18,7 +18,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -e .
+        run: pip install .
 
       - name: Pull GitHub MCP Docker image
         run: docker pull ghcr.io/github/github-mcp-server
