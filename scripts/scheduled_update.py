@@ -122,23 +122,62 @@ def main():
                 job_id = trigger_update(repo)
                 print(f"  Job ID: {job_id}")
                 job = wait_for_job(job_id, repo)
-                results.append({"repo": repo, "status": job["status"], "job_id": job_id})
+                result_data = job.get("result") or {}
+                entry = {
+                    "repo": repo,
+                    "status": job["status"],
+                    "job_id": job_id,
+                    "url": result_data.get("url"),
+                    "message": result_data.get("message"),
+                    "outcome": result_data.get("status", job["status"]),
+                    "error": job.get("error"),
+                }
+                results.append(entry)
                 print(f"  Status: {job['status']}")
-                if job.get("error"):
-                    print(f"  Error: {job['error']}")
+                if entry["url"]:
+                    print(f"  URL: {entry['url']}")
+                if entry["message"]:
+                    print(f"  Message: {entry['message']}")
+                if entry["error"]:
+                    print(f"  Error: {entry['error']}")
             except Exception as e:
                 results.append({"repo": repo, "status": "error", "error": str(e)})
                 print(f"  Error: {e}")
 
-        # 4. Summary
+        # 4. Detailed report
         print(f"\n{'='*60}")
-        print("SUMMARY")
+        print("REPORT")
         print(f"{'='*60}")
+        print(f"Repos processed: {len(results)}")
+        print(f"Prefix filter:   {REPO_PREFIX}")
+        print()
+
         for r in results:
             icon = "OK" if r["status"] == "completed" else "FAIL"
-            print(f"  [{icon}] {r['repo']} — {r['status']}")
+            print(f"  [{icon}] {r['repo']}")
+            print(f"        Status:  {r.get('outcome', r['status'])}")
+            if r.get("url"):
+                # Determine if it's a PR or Issue from the URL
+                link_type = "PR" if "/pull/" in r["url"] else "Issue" if "/issues/" in r["url"] else "Link"
+                print(f"        {link_type}:  {r['url']}")
+            if r.get("message"):
+                print(f"        Detail:  {r['message']}")
+            if r.get("error"):
+                print(f"        Error:   {r['error']}")
+            print()
 
+        succeeded = [r for r in results if r["status"] == "completed"]
         failed = [r for r in results if r["status"] != "completed"]
+        prs = [r for r in results if r.get("url") and "/pull/" in r["url"]]
+        issues = [r for r in results if r.get("url") and "/issues/" in r["url"]]
+
+        print(f"  Completed: {len(succeeded)}/{len(results)}")
+        print(f"  Failed:    {len(failed)}/{len(results)}")
+        if prs:
+            print(f"  PRs created:    {len(prs)}")
+        if issues:
+            print(f"  Issues created: {len(issues)}")
+
         if failed:
             print(f"\n{len(failed)} repo(s) failed.")
             sys.exit(1)
