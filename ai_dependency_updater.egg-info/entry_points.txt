@@ -1,0 +1,4 @@
+[console_scripts]
+dep-diagnose = src.cli.diagnose:main
+dep-server = src.api.startup:main
+dep-updater = src.agents.orchestrator:main
