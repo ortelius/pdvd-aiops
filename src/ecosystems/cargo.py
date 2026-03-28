@@ -109,6 +109,22 @@ class CargoPlugin(EcosystemPlugin):
     def outdated_output_format(self) -> str:
         return "text"
 
+    def parse_outdated_text(self, stdout: str) -> list[dict]:
+        """cargo outdated format: Name Project Compat Latest Kind"""
+        results = []
+        for line in stdout.strip().splitlines():
+            line = line.strip()
+            if not line or line.startswith(("-", "=", "Name")):
+                continue
+            parts = line.split()
+            if len(parts) >= 4:
+                results.append({
+                    "name": parts[0],
+                    "current": parts[1],
+                    "latest": parts[3],  # column 4 is Latest
+                })
+        return results
+
     def ci_build_patterns(self) -> list[str]:
         return [r'cargo build']
 

@@ -231,10 +231,22 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
 
     # Update table
     body = "## This PR contains updated dependencies:\n\n"
-    body += "| Package | Update | Change |\n"
-    body += "|---------|--------|--------|\n"
-    for u in applied_updates:
-        body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` |\n"
+
+    # Check if any update has dep_type info
+    has_dep_type = any(u.get("dep_type") for u in applied_updates)
+
+    if has_dep_type:
+        body += "| Package | Update | Change | Type |\n"
+        body += "|---------|--------|--------|------|\n"
+        for u in applied_updates:
+            dep_type = u.get("dep_type", "direct")
+            type_label = "transitive" if dep_type == "transitive" else "direct"
+            body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` | {type_label} |\n"
+    else:
+        body += "| Package | Update | Change |\n"
+        body += "|---------|--------|--------|\n"
+        for u in applied_updates:
+            body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` |\n"
 
     # Build/test logs
     log_section = "\n\n---\n\nAll updates have been tested and verified:\n"
