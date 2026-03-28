@@ -19,7 +19,7 @@ DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-5-20250929",
     "gemini": "gemini-2.0-flash",
     "openai": "gpt-4o-mini",
-    "groq": "llama-3.1-70b-versatile",
+    "groq": "llama-3.3-70b-versatile",
     "ollama": "llama3",
 }
 
