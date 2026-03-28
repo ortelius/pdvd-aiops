@@ -10,8 +10,7 @@ import json
 import os
 from typing import Optional
 
-from langchain_anthropic import ChatAnthropic
-
+from src.config.llm import get_llm
 from src.pipeline.state import PipelineState
 
 
@@ -49,11 +48,7 @@ def orchestrator_node(state: PipelineState) -> dict:
             return {"task": task}
 
         # Multi-route: use Haiku to decide
-        llm = ChatAnthropic(
-            model="claude-haiku-4-5-20251001",
-            temperature=0,
-            max_tokens=50,
-        )
+        llm = get_llm(temperature=0, max_tokens=50)
 
         routes_desc = "\n".join(
             f'- "{name}": {desc}' for name, desc in AVAILABLE_ROUTES.items()

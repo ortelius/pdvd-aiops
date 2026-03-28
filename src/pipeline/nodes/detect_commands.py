@@ -162,18 +162,14 @@ def _llm_detect_commands(
     Cost: ~$0.003
     """
     try:
-        from langchain_anthropic import ChatAnthropic
+        from src.config.llm import get_llm
 
         # Gather evidence (file reads only, no tokens yet)
         evidence = _gather_repo_evidence(repo_path)
         if not evidence:
             return None
 
-        llm = ChatAnthropic(
-            model="claude-haiku-4-5-20251001",
-            temperature=0,
-            max_tokens=300,
-        )
+        llm = get_llm(temperature=0, max_tokens=300)
 
         prompt = f"""Given this repository structure and configuration files, identify the commands to:
 1. Install dependencies
