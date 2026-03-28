@@ -268,23 +268,11 @@ Prerequisites:
 
     repo_input = sys.argv[1]
 
-    # Convert owner/repo to full URL if needed
-    if not repo_input.startswith("http"):
-        repo_url = f"https://github.com/{repo_input}"
-        repo_name = repo_input
-    else:
-        repo_url = repo_input
-        parts = repo_url.rstrip("/").split("/")
-        repo_name = f"{parts[-2]}/{parts[-1]}"
-
     print("=" * 80)
-    print("  Automated Dependency Update System")
+    print("  Automated Dependency Update System (LangGraph Pipeline)")
     print("=" * 80)
     print()
-    print(f"Repository: {repo_name}")
-    print(f"URL: {repo_url}")
-    print()
-    print("Starting automated update process...")
+    print(f"Repository: {repo_input}")
     print()
 
     # Check prerequisites
@@ -298,70 +286,23 @@ Prerequisites:
     print("All prerequisites validated")
     print()
 
-    # Create and run orchestrator
-    global _current_orchestrator_handler
-    orchestrator = create_main_orchestrator()
-    handler = AgentActivityHandler("orchestrator")
-    _current_orchestrator_handler = handler
+    # Run the LangGraph pipeline
+    from src.pipeline.graph import run_pipeline
 
     try:
-        result = orchestrator.invoke(
-            {
-                "messages": [
-                    (
-                        "user",
-                        f"Automatically update dependencies for repository: {repo_url}",
-                    )
-                ]
-            },
-            config={"callbacks": [handler]},
-        )
+        result = run_pipeline(repo_url=repo_input)
 
-        print("\n" + "=" * 80)
-        print("  FINAL RESULT")
-        print("=" * 80)
-        print()
-
-        final_message = result["messages"][-1]
-        try:
-            result_json = json.loads(final_message.content)
-            status = result_json.get("status", "unknown")
-            if status == "pr_created":
-                print(f"  PR Created: {result_json.get('url', 'N/A')}")
-            elif status == "issue_created":
-                print(f"  Issue Created: {result_json.get('url', 'N/A')}")
-            elif status == "issue_failed":
-                print(f"  Could not create issue: {result_json.get('message', '')}")
-                if result_json.get("details"):
-                    print(f"\n  Issue details:\n{result_json['details']}")
-            elif status == "up_to_date":
-                print(
-                    f"  {result_json.get('message', 'All dependencies are up to date.')}"
-                )
-            else:
-                print(f"  Status: {status}")
-                if result_json.get("message"):
-                    print(f"  {result_json['message']}")
-        except (json.JSONDecodeError, TypeError):
-            print(final_message.content)
-        print()
-
-        # Print cost summary
-        usage = handler.get_usage_summary()
-        print("=" * 80)
-        print("  USAGE & COST")
-        print("=" * 80)
-        print(
-            f"  Total tokens: {usage['total_tokens']:,} ({usage['input_tokens']:,} in, {usage['output_tokens']:,} out)"
-        )
-        print(f"  LLM calls:    {usage['llm_calls']}")
-        print(f"  Est. cost:    ${usage['estimated_cost_usd']:.4f}")
-        if usage.get("children"):
-            for child in usage["children"]:
-                print(
-                    f"    - {child['agent']}: {child['total_tokens']:,} tokens, ${child['estimated_cost_usd']:.4f}"
-                )
-        print()
+        status = result.get("status", "unknown")
+        if status == "pr_created":
+            print(f"  PR Created: {result.get('url', 'N/A')}")
+        elif status == "issue_created":
+            print(f"  Issue Created: {result.get('url', 'N/A')}")
+        elif status == "up_to_date":
+            print(f"  {result.get('message', 'All dependencies are up to date.')}")
+        else:
+            print(f"  Status: {status}")
+            if result.get("message"):
+                print(f"  {result['message']}")
 
     except KeyboardInterrupt:
         print("\n\nProcess interrupted by user")
