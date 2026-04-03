@@ -125,9 +125,10 @@ def build_graph() -> StateGraph:
 
 def _validate_repo_ownership(repo_name: str):
     """
-    Verify the target repo is owned by the authenticated GitHub user.
+    Verify the authenticated user has push access to the target repo.
 
-    Prevents the pipeline from modifying repos the user doesn't own.
+    Checks that the authenticated token has push access to the target repo.
+    Prevents the pipeline from modifying repos the user can't write to.
     Raises RuntimeError if validation fails.
     """
     import os
@@ -140,30 +141,26 @@ def _validate_repo_ownership(repo_name: str):
     try:
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
 
-        # Get authenticated user
-        user_resp = requests.get("https://api.github.com/user", headers=headers, timeout=10)
-        user_resp.raise_for_status()
-        authenticated_user = user_resp.json()["login"]
-
-        # Get repo info
+        # Check repo permissions directly — works for personal, org, and fork repos
         repo_resp = requests.get(
             f"https://api.github.com/repos/{repo_name}", headers=headers, timeout=10,
         )
         repo_resp.raise_for_status()
         repo_data = repo_resp.json()
-        repo_owner = repo_data.get("owner", {}).get("login", "")
 
-        if repo_owner != authenticated_user:
+        has_push = repo_data.get("permissions", {}).get("push", False)
+
+        if not has_push:
+            repo_owner = repo_data.get("owner", {}).get("login", "")
             raise RuntimeError(
-                f"Repository '{repo_name}' is owned by '{repo_owner}', "
-                f"but you are authenticated as '{authenticated_user}'. "
-                f"This pipeline can only update repositories you own."
+                f"No push access to '{repo_name}' (owner: {repo_owner}). "
+                f"This pipeline can only update repositories you have write access to."
             )
 
-        print(f"  [validate] Repo ownership confirmed: {authenticated_user}/{repo_name.split('/')[-1]}")
+        print(f"  [validate] Push access confirmed for {repo_name}")
 
     except requests.RequestException as e:
-        print(f"  [validate] Warning: Could not verify repo ownership: {e}")
+        print(f"  [validate] Warning: Could not verify repo access: {e}")
         # Don't block on network errors — let the pipeline proceed
 
 
