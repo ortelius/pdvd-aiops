@@ -409,6 +409,43 @@ class PersistentMCPServer:
             },
         )
 
+    async def list_pull_requests(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        head: Optional[str] = None,
+        state: str = "open",
+    ) -> Dict[str, Any]:
+        """List pull requests, optionally filtered by head branch."""
+        args = {
+            "owner": repo_owner,
+            "repo": repo_name,
+            "state": state,
+        }
+        if head:
+            args["head"] = f"{repo_owner}:{head}"
+        return await self.call_tool("list_pull_requests", args)
+
+    async def update_pull_request(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pull_number: int,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update an existing pull request's title and/or body."""
+        args = {
+            "owner": repo_owner,
+            "repo": repo_name,
+            "pull_number": pull_number,
+        }
+        if title:
+            args["title"] = title
+        if body:
+            args["body"] = body
+        return await self.call_tool("update_pull_request", args)
+
 
 # Convenience functions for getting the global MCP server instance
 async def get_mcp_server() -> PersistentMCPServer:

@@ -88,15 +88,23 @@ def _run_mcp_call(coro_func, *args):
     return future.result(timeout=60)
 
 
+FIXED_BRANCH_NAME = "pdvd-aiops/dep-update"
+
+
 def create_branch(repo_path: str, branch_name: Optional[str] = None) -> dict:
-    """Create a branch on GitHub via MCP. Returns {"status", "branch_name"}."""
+    """
+    Create or reuse a fixed branch on GitHub via MCP.
+
+    Uses a single fixed branch name per repo to avoid branch clutter.
+    If the branch already exists, that's fine — push_files will update it.
+    """
     try:
         owner, repo = get_repo_owner_name(repo_path)
     except ValueError as e:
         return {"status": "error", "message": str(e)}
 
     if not branch_name:
-        branch_name = f"OrteliusAiBot/dep-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        branch_name = FIXED_BRANCH_NAME
 
     async def _create(server, o, r, b):
         return await server.create_branch(o, r, b)
@@ -105,6 +113,12 @@ def create_branch(repo_path: str, branch_name: Optional[str] = None) -> dict:
 
     if result["status"] == "success":
         return {"status": "success", "branch_name": branch_name}
+
+    # Branch may already exist — that's fine, we'll push to it
+    error_msg = result.get("message", "").lower()
+    if "already exists" in error_msg or "reference already exists" in error_msg:
+        return {"status": "success", "branch_name": branch_name}
+
     return {"status": "error", "message": result.get("message", "Failed to create branch")}
 
 
@@ -160,21 +174,81 @@ def push_files(repo_path: str, branch_name: str, message: str = "chore: update d
     return {"status": "error", "message": result.get("message", "Failed to push files")}
 
 
+def _find_existing_pr(owner: str, repo: str, branch_name: str) -> Optional[dict]:
+    """Check if an open PR already exists for the given branch."""
+    try:
+        async def _list(server, o, r, head):
+            return await server.list_pull_requests(o, r, head=head, state="open")
+
+        result = _run_mcp_call(_list, owner, repo, branch_name)
+
+        if result.get("status") == "success":
+            data = result.get("data", [])
+            # MCP may return list directly or nested
+            prs = data if isinstance(data, list) else data.get("items", []) if isinstance(data, dict) else []
+            for pr in prs:
+                if isinstance(pr, dict) and pr.get("head", {}).get("ref") == branch_name:
+                    return pr
+    except Exception:
+        pass
+    return None
+
+
+def _update_existing_pr(owner: str, repo: str, pr_number: int, title: str, body: str) -> dict:
+    """Update an existing PR's title and body."""
+    try:
+        async def _update(server, o, r, num, t, b):
+            return await server.update_pull_request(o, r, num, title=t, body=b)
+
+        result = _run_mcp_call(_update, owner, repo, pr_number, title, body)
+
+        if result.get("status") == "success":
+            data = result.get("data", {})
+            pr_url = ""
+            if isinstance(data, dict):
+                pr_url = data.get("html_url", "") or data.get("url", "")
+            return {"status": "success", "pr_url": pr_url}
+        return {"status": "error", "message": result.get("message", "")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 def create_github_pr(
     repo_name: str, branch_name: str, title: str, body: str, base_branch: str = "main"
 ) -> dict:
-    """Create a GitHub PR via MCP. Returns {"status", "pr_url"}."""
+    """
+    Create or update a GitHub PR via MCP.
+
+    If an open PR already exists for the branch, updates its title and body
+    instead of creating a duplicate. This keeps a single PR per repo.
+    """
     parts = repo_name.split("/")
     if len(parts) != 2:
         return {"status": "error", "message": f"Invalid repo format: {repo_name}"}
 
-    async def _create_pr(server, owner, repo, t, b, head, base):
+    owner, repo = parts
+
+    # Check for existing open PR on this branch
+    existing_pr = _find_existing_pr(owner, repo, branch_name)
+    if existing_pr:
+        pr_number = existing_pr.get("number")
+        pr_url = existing_pr.get("html_url", "")
+        print(f"  [create_pr] Found existing PR #{pr_number}, updating...")
+
+        update_result = _update_existing_pr(owner, repo, pr_number, title, body)
+        if update_result.get("status") == "success":
+            final_url = update_result.get("pr_url") or pr_url
+            return {"status": "success", "pr_url": final_url}
+        # If update fails, fall through to create
+
+    # Create new PR
+    async def _create_pr(server, o, r, t, b, head, base):
         return await server.create_pull_request(
-            repo_owner=owner, repo_name=repo,
+            repo_owner=o, repo_name=r,
             title=t, body=b, head=head, base=base,
         )
 
-    result = _run_mcp_call(_create_pr, parts[0], parts[1], title, body, branch_name, base_branch)
+    result = _run_mcp_call(_create_pr, owner, repo, title, body, branch_name, base_branch)
 
     if result["status"] == "success":
         pr_url = ""
@@ -184,6 +258,16 @@ def create_github_pr(
         if not pr_url:
             pr_url = result.get("pr_url", "")
         return {"status": "success", "pr_url": pr_url}
+
+    # PR creation may fail if one already exists (race condition / MCP quirk)
+    error_msg = result.get("message", "").lower()
+    if "already exists" in error_msg:
+        existing = _find_existing_pr(owner, repo, branch_name)
+        if existing:
+            pr_url = existing.get("html_url", "")
+            _update_existing_pr(owner, repo, existing["number"], title, body)
+            return {"status": "success", "pr_url": pr_url}
+
     return {"status": "error", "message": result.get("message", "Unknown error")}
 
 
