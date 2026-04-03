@@ -59,6 +59,10 @@ def run_integrations_node(state: PipelineState) -> dict:
             status_icon = "PASS" if result["status"] == "pass" else result["status"].upper()
             print(f"  [run_integrations] {name}: {status_icon}")
 
+            if result["status"] != "pass" and result.get("stderr"):
+                for line in result["stderr"].strip().splitlines()[:5]:
+                    print(f"  [run_integrations]   {line}")
+
             if tracker:
                 tracker.record_tool_call(f"run_{name}")
 

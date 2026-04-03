@@ -263,23 +263,33 @@ def _find_existing_pr(owner: str, repo: str, branch_name: str) -> Optional[dict]
 
 
 def _update_existing_pr(owner: str, repo: str, pr_number: int, title: str, body: str) -> dict:
-    """Update an existing PR's title and body."""
+    """Update an existing PR's title and body via GitHub REST API."""
+    import requests
+
+    repo_full = f"{owner}/{repo}"
+    pr_url = f"https://github.com/{repo_full}/pull/{pr_number}"
+    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN", "")
+
+    if not token:
+        return {"status": "error", "message": "No GitHub token available"}
+
     try:
-        async def _update(server, o, r, num, t, b):
-            return await server.update_pull_request(o, r, num, title=t, body=b)
-
-        result = _run_mcp_call(_update, owner, repo, pr_number, title, body)
-
-        if result.get("status") == "success":
-            data = result.get("data", {})
-            pr_url = _extract_pr_url(data, owner, repo)
-            if not pr_url:
-                pr_url = _extract_pr_url(result, owner, repo)
-            if not pr_url and pr_number:
-                pr_url = f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+        resp = requests.patch(
+            f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"title": title, "body": body},
+            timeout=30,
+        )
+        if resp.status_code == 200:
             return {"status": "success", "pr_url": pr_url}
-        return {"status": "error", "message": result.get("message", "")}
+        else:
+            print(f"  [create_pr] PR update failed ({resp.status_code}): {resp.text[:200]}")
+            return {"status": "error", "message": resp.text[:200]}
     except Exception as e:
+        print(f"  [create_pr] PR update error: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -309,7 +319,6 @@ def create_github_pr(
         if update_result.get("status") == "success":
             final_url = update_result.get("pr_url") or pr_url
             return {"status": "success", "pr_url": final_url}
-        # If update fails, fall through to create
 
     # Create new PR
     async def _create_pr(server, o, r, t, b, head, base):
@@ -349,7 +358,9 @@ def create_github_pr(
         existing = _find_existing_pr(owner, repo, branch_name)
         if existing:
             pr_url = _extract_pr_url(existing, owner, repo)
-            _update_existing_pr(owner, repo, existing["number"], title, body)
+            retry = _update_existing_pr(owner, repo, existing["number"], title, body)
+            if retry.get("status") != "success":
+                print(f"  [create_pr] Retry update also failed: {retry.get('message', '')}")
             return {"status": "success", "pr_url": pr_url}
 
     return {"status": "error", "message": result.get("message", "Unknown error")}
