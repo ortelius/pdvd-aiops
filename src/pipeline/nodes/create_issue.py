@@ -7,7 +7,7 @@ Handles two issue types:
 """
 
 from src.pipeline.state import PipelineState
-from src.tools.github_tools import create_github_issue, find_or_update_security_issue
+from src.tools.github_tools import create_github_issue, find_or_update_failure_issue, find_or_update_security_issue
 
 
 def create_issue_node(state: PipelineState) -> dict:
@@ -129,19 +129,23 @@ def _create_failure_issue(state: PipelineState) -> dict:
                 body += f"from `{rb.get('from_version', '?')}` to `{rb.get('to_version', '?')}`\n"
             body += "\n"
 
-        body += "---\n*This issue was created automatically by the AI dependency updater.*\n"
+        body += "---\n*This issue is automatically managed by pdvd-aiops. It will be updated on each scan.*\n"
 
-        result = create_github_issue(repo_name, title, body)
+        result = find_or_update_failure_issue(repo_name, title, body)
 
         if tracker:
-            tracker.record_tool_call("create_github_issue")
+            tracker.record_tool_call("create_or_update_failure_issue")
 
-        if result["status"] == "success":
+        status = result.get("status", "error")
+        issue_url = result.get("issue_url", "")
+
+        if status in ("issue_created", "issue_updated"):
+            action = "created" if status == "issue_created" else "updated"
             return {
-                "issue_url": result["issue_url"],
-                "final_status": "issue_created",
-                "final_url": result["issue_url"],
-                "final_message": f"Issue created: {result['issue_url']}",
+                "issue_url": issue_url,
+                "final_status": status,
+                "final_url": issue_url,
+                "final_message": f"Issue {action}: {issue_url}",
             }
         else:
             return {

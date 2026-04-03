@@ -263,23 +263,33 @@ def _find_existing_pr(owner: str, repo: str, branch_name: str) -> Optional[dict]
 
 
 def _update_existing_pr(owner: str, repo: str, pr_number: int, title: str, body: str) -> dict:
-    """Update an existing PR's title and body."""
+    """Update an existing PR's title and body via GitHub REST API."""
+    import requests
+
+    repo_full = f"{owner}/{repo}"
+    pr_url = f"https://github.com/{repo_full}/pull/{pr_number}"
+    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN", "")
+
+    if not token:
+        return {"status": "error", "message": "No GitHub token available"}
+
     try:
-        async def _update(server, o, r, num, t, b):
-            return await server.update_pull_request(o, r, num, title=t, body=b)
-
-        result = _run_mcp_call(_update, owner, repo, pr_number, title, body)
-
-        if result.get("status") == "success":
-            data = result.get("data", {})
-            pr_url = _extract_pr_url(data, owner, repo)
-            if not pr_url:
-                pr_url = _extract_pr_url(result, owner, repo)
-            if not pr_url and pr_number:
-                pr_url = f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+        resp = requests.patch(
+            f"https://api.github.com/repos/{repo_full}/pulls/{pr_number}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"title": title, "body": body},
+            timeout=30,
+        )
+        if resp.status_code == 200:
             return {"status": "success", "pr_url": pr_url}
-        return {"status": "error", "message": result.get("message", "")}
+        else:
+            print(f"  [create_pr] PR update failed ({resp.status_code}): {resp.text[:200]}")
+            return {"status": "error", "message": resp.text[:200]}
     except Exception as e:
+        print(f"  [create_pr] PR update error: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -309,7 +319,6 @@ def create_github_pr(
         if update_result.get("status") == "success":
             final_url = update_result.get("pr_url") or pr_url
             return {"status": "success", "pr_url": final_url}
-        # If update fails, fall through to create
 
     # Create new PR
     async def _create_pr(server, o, r, t, b, head, base):
@@ -349,7 +358,9 @@ def create_github_pr(
         existing = _find_existing_pr(owner, repo, branch_name)
         if existing:
             pr_url = _extract_pr_url(existing, owner, repo)
-            _update_existing_pr(owner, repo, existing["number"], title, body)
+            retry = _update_existing_pr(owner, repo, existing["number"], title, body)
+            if retry.get("status") != "success":
+                print(f"  [create_pr] Retry update also failed: {retry.get('message', '')}")
             return {"status": "success", "pr_url": pr_url}
 
     return {"status": "error", "message": result.get("message", "Unknown error")}
@@ -394,50 +405,73 @@ SECURITY_ISSUE_TITLE = "Security: unfixable CVEs in dependencies"
 SECURITY_ISSUE_LABEL = "security"
 SECURITY_ISSUE_MARKER = "<!-- pdvd-aiops-security-tracker -->"
 
+FAILURE_ISSUE_MARKER = "<!-- pdvd-aiops-failure-tracker -->"
 
-def _find_existing_security_issue(owner: str, repo: str) -> Optional[dict]:
-    """
-    Search for an existing pdvd-aiops security issue in the repo.
 
-    Uses the hidden HTML marker comment to identify our issue regardless of
-    title edits. Falls back to title search if marker search fails.
+def _find_existing_issue_by_marker(owner: str, repo: str, marker: str, label: str = "") -> Optional[dict]:
     """
+    Find an existing pdvd-aiops issue by its hidden HTML marker.
+
+    Strategy:
+    1. Try MCP search_issues with marker text
+    2. If search fails or returns empty (GitHub search index delay),
+       fall back to listing open issues and scanning bodies client-side
+
+    Returns the issue dict if found, None otherwise.
+    """
+    tag = label or "issue"
+
+    # ── Strategy 1: Search API (fast but may miss recently created issues) ──
     try:
         async def _search(server, q):
             return await server.search_issues(query=q)
 
-        # Search by marker in body — most reliable
-        query = f"repo:{owner}/{repo} is:issue is:open \"{SECURITY_ISSUE_MARKER}\" in:body"
+        query = f"repo:{owner}/{repo} is:issue is:open \"{marker}\" in:body"
         result = _run_mcp_call(_search, query)
 
         if result.get("status") == "success":
             data = result.get("data", {})
-            items = []
-            if isinstance(data, dict):
-                items = data.get("items", [])
-            elif isinstance(data, list):
-                items = data
-            if items and isinstance(items[0], dict):
+            items = _extract_items_from_response(data)
+            if items:
+                print(f"  [{tag}] Found existing issue via search: #{items[0].get('number', '?')}")
                 return items[0]
-
-        # Fallback: search by label + title keywords
-        query = f"repo:{owner}/{repo} is:issue is:open label:{SECURITY_ISSUE_LABEL} \"unfixable CVE\" in:title"
-        result = _run_mcp_call(_search, query)
-
-        if result.get("status") == "success":
-            data = result.get("data", {})
-            items = []
-            if isinstance(data, dict):
-                items = data.get("items", [])
-            elif isinstance(data, list):
-                items = data
-            if items and isinstance(items[0], dict):
-                return items[0]
-
     except Exception as e:
-        print(f"  [security_issue] Search failed: {e}")
+        print(f"  [{tag}] Search failed: {e}")
+
+    # ── Strategy 2: List issues and scan bodies client-side (reliable) ──
+    try:
+        async def _list(server, o, r):
+            return await server.list_issues(o, r, state="open", per_page=30)
+
+        result = _run_mcp_call(_list, owner, repo)
+
+        if result.get("status") == "success":
+            data = result.get("data", {})
+            issues = _extract_items_from_response(data)
+            for issue in issues:
+                body = issue.get("body", "") or ""
+                if marker in body:
+                    print(f"  [{tag}] Found existing issue via list scan: #{issue.get('number', '?')}")
+                    return issue
+    except Exception as e:
+        print(f"  [{tag}] List fallback failed: {e}")
 
     return None
+
+
+def _extract_items_from_response(data) -> list:
+    """Extract a list of items from various MCP response shapes."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        # Standard GitHub search response
+        for key in ("items", "issues", "results", "nodes"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        # Single item response — wrap in list
+        if data.get("number"):
+            return [data]
+    return []
 
 
 def _update_github_issue(
@@ -493,7 +527,7 @@ def find_or_update_security_issue(
     )
 
     # Check for existing issue
-    existing = _find_existing_security_issue(owner, repo)
+    existing = _find_existing_issue_by_marker(owner, repo, SECURITY_ISSUE_MARKER, "security_issue")
 
     if existing:
         issue_number = existing.get("number")
@@ -515,6 +549,54 @@ def find_or_update_security_issue(
     result = create_github_issue(
         repo_name, title, body, labels=[SECURITY_ISSUE_LABEL, "dependencies"],
     )
+
+    if result["status"] == "success":
+        return {"status": "issue_created", "issue_url": result.get("issue_url", "")}
+
+    return {"status": "error", "message": result.get("message", "Failed to create issue")}
+
+
+def find_or_update_failure_issue(
+    repo_name: str,
+    title: str,
+    body: str,
+) -> dict:
+    """
+    Create or update a single failure tracking issue.
+
+    Prepends the failure marker to the body, then searches for an existing
+    issue with the same marker. Updates if found, creates if not.
+
+    Returns: {"status": "issue_created"|"issue_updated", "issue_url": str}
+    """
+    parts = repo_name.split("/")
+    if len(parts) != 2:
+        return {"status": "error", "message": f"Invalid repo format: {repo_name}"}
+    owner, repo = parts
+
+    # Prepend marker to body
+    body_with_marker = f"{FAILURE_ISSUE_MARKER}\n\n{body}"
+
+    # Check for existing issue
+    existing = _find_existing_issue_by_marker(owner, repo, FAILURE_ISSUE_MARKER, "failure_issue")
+
+    if existing:
+        issue_number = existing.get("number")
+        issue_url = existing.get("html_url", "")
+        if not issue_url:
+            issue_url = f"https://github.com/{owner}/{repo}/issues/{issue_number}"
+
+        print(f"  [failure_issue] Found existing issue #{issue_number}, updating...")
+        update_result = _update_github_issue(owner, repo, issue_number, title, body_with_marker)
+
+        if update_result.get("status") == "success":
+            return {
+                "status": "issue_updated",
+                "issue_url": update_result.get("issue_url") or issue_url,
+            }
+
+    # Create new issue
+    result = create_github_issue(repo_name, title, body_with_marker)
 
     if result["status"] == "success":
         return {"status": "issue_created", "issue_url": result.get("issue_url", "")}

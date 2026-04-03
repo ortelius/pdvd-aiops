@@ -6,6 +6,7 @@ falls back to shell=True only when shell operators are genuinely needed,
 and validates commands against dangerous patterns.
 """
 
+import os
 import re
 import shlex
 import subprocess
@@ -88,6 +89,19 @@ def run_cmd(
         )
 
     args = shlex.split(cmd)
+
+    # Extract leading KEY=value tokens (inline env vars) and merge into env.
+    # This handles shell-style "VAR=val command ..." without needing shell=True.
+    inline_env = {}
+    while args and "=" in args[0] and args[0].split("=", 1)[0].isidentifier():
+        key, value = args.pop(0).split("=", 1)
+        inline_env[key] = value
+
+    if inline_env:
+        merged_env = (env if env is not None else os.environ).copy()
+        merged_env.update(inline_env)
+        env = merged_env
+
     return subprocess.run(
         args,
         capture_output=True,

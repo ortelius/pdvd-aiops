@@ -107,7 +107,7 @@ register_integration(
     name="renovate",
     category="dependency_manager",
     config_files=["renovate.json", "renovate.json5", ".renovaterc", ".renovaterc.json", ".github/renovate.json"],
-    run_command="LOG_FORMAT=json LOG_LEVEL=debug renovate --platform=local --dry-run=lookup",
+    run_command="LOG_FORMAT=json LOG_LEVEL=debug renovate --platform=local --dry-run=lookup --base-dir={repo_path}",
     detect_command="renovate --version",
     install_command="npm install -g renovate",
     uninstall_command="npm uninstall -g renovate",
