@@ -43,12 +43,12 @@ def detect_commands_node(state: PipelineState) -> dict:
         # Strategy 2: Parse package.json scripts (for JS ecosystems)
         if os.path.exists(os.path.join(repo_path, "package.json")):
             commands = _parse_package_json_scripts(repo_path, package_manager)
-            if commands and (commands.get("build") or commands.get("test")):
+            if commands and (commands.get("build") or commands.get("test") or commands.get("install")):
                 if tracker:
                     tracker.record_tool_call("parse_package_json")
                 return {"build_commands": commands, "commands_source": "package_json"}
 
-        # Strategy 3: Single Haiku LLM call with repo evidence
+        # Strategy 3: Single LLM call with repo evidence
         commands = _llm_detect_commands(repo_path, package_manager, tracker)
         if commands and (commands.get("build") or commands.get("test")):
             return {"build_commands": commands, "commands_source": "haiku_llm"}
@@ -169,6 +169,11 @@ def _llm_detect_commands(
         if not evidence:
             return None
 
+        # Truncate serialized evidence to prevent exceeding LLM context limits
+        evidence_str = json.dumps(evidence, indent=2)
+        if len(evidence_str) > 4000:
+            evidence_str = evidence_str[:4000] + "\n... (truncated)"
+
         llm = get_llm(temperature=0, max_tokens=300)
 
         prompt = f"""Given this repository structure and configuration files, identify the commands to:
@@ -180,7 +185,7 @@ def _llm_detect_commands(
 Package manager: {package_manager}
 
 Repository evidence:
-{json.dumps(evidence, indent=2)}
+{evidence_str}
 
 Return ONLY a JSON object with these keys: install, build, test, lint
 Use null for any command you cannot determine. No explanation."""
@@ -206,7 +211,8 @@ Use null for any command you cannot determine. No explanation."""
 
         return json.loads(content)
 
-    except Exception:
+    except Exception as e:
+        print(f"  [detect] LLM command detection failed: {e}")
         return None
 
 

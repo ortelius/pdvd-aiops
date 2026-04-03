@@ -251,6 +251,140 @@ flask      2.0.0    3.0.0
 
 
 # ──────────────────────────────────────────────────────────────
+# Yarn outdated text parsing (Bug 1 fix)
+# ──────────────────────────────────────────────────────────────
+
+class TestYarnOutdatedParsing:
+    """Tests for YarnPlugin.parse_outdated_text — Bug 1 fix."""
+
+    SAMPLE_OUTPUT = """yarn outdated v1.22.22
+info Color legend :
+"<red>"    : Major Update backward-incompatible updates
+"<yellow>" : Minor Update backward-compatible features
+"<green>"  : Patch Update backward-compatible bug fixes
+Package  Current  Wanted   Latest   Package Type  URL
+axios    1.6.0    1.7.9    1.7.9    dependencies  https://axios-http.com
+lodash   4.17.20  4.17.21  4.17.21  dependencies  https://lodash.com
+Done in 0.17s.
+"""
+
+    def test_parses_real_packages(self):
+        from src.ecosystems.npm import YarnPlugin
+        plugin = YarnPlugin()
+        result = plugin.parse_outdated_text(self.SAMPLE_OUTPUT)
+        assert len(result) == 2
+        assert result[0]["name"] == "axios"
+        assert result[0]["current"] == "1.6.0"
+        assert result[0]["latest"] == "1.7.9"  # Latest (index 3), NOT Wanted (index 2)
+        assert result[1]["name"] == "lodash"
+
+    def test_no_garbage_entries(self):
+        from src.ecosystems.npm import YarnPlugin
+        plugin = YarnPlugin()
+        result = plugin.parse_outdated_text(self.SAMPLE_OUTPUT)
+        names = [r["name"] for r in result]
+        assert "yarn" not in names
+        assert "info" not in names
+        assert '"<red>"' not in names
+        assert '"<yellow>"' not in names
+        assert '"<green>"' not in names
+        assert "Done" not in names
+
+    def test_no_url_as_version(self):
+        """The URL column should NOT leak into the latest version."""
+        from src.ecosystems.npm import YarnPlugin
+        plugin = YarnPlugin()
+        result = plugin.parse_outdated_text(self.SAMPLE_OUTPUT)
+        for r in result:
+            assert "http" not in r["latest"]
+            assert "http" not in r["current"]
+
+    def test_empty_output(self):
+        from src.ecosystems.npm import YarnPlugin
+        plugin = YarnPlugin()
+        assert plugin.parse_outdated_text("") == []
+
+    def test_only_preamble_no_data(self):
+        from src.ecosystems.npm import YarnPlugin
+        plugin = YarnPlugin()
+        output = """yarn outdated v1.22.22
+info Color legend :
+Package  Current  Wanted  Latest  Package Type  URL
+Done in 0.05s.
+"""
+        result = plugin.parse_outdated_text(output)
+        assert result == []
+
+    def test_integration_with_parse_outdated_output(self):
+        """Verify the plugin parser is called by the analyze module."""
+        from src.ecosystems.npm import YarnPlugin
+        from src.pipeline.nodes.analyze import parse_outdated_output
+
+        plugin = YarnPlugin()
+        detected_info = {"output_format": "text"}
+        result = parse_outdated_output(self.SAMPLE_OUTPUT, detected_info, plugin=plugin)
+        assert len(result) == 2
+        assert result[0]["name"] == "axios"
+        assert result[0]["latest"] == "1.7.9"
+
+
+# ──────────────────────────────────────────────────────────────
+# Detect commands — package.json handling (Bug 3 fix)
+# ──────────────────────────────────────────────────────────────
+
+class TestDetectCommandsPackageJson:
+    """Tests for _parse_package_json_scripts and the condition gate — Bug 3 fix."""
+
+    def test_no_build_script_returns_build_none(self, tmp_path):
+        from src.pipeline.nodes.detect_commands import _parse_package_json_scripts
+        import json
+
+        pkg = {"name": "test-app", "scripts": {"test": "jest"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+        result = _parse_package_json_scripts(str(tmp_path), "yarn")
+        assert result["build"] is None
+        assert result["test"] == "yarn test"
+        assert result["install"] == "yarn install"
+
+    def test_no_scripts_section(self, tmp_path):
+        from src.pipeline.nodes.detect_commands import _parse_package_json_scripts
+        import json
+
+        pkg = {"name": "test-app", "dependencies": {"express": "^4.0.0"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+        result = _parse_package_json_scripts(str(tmp_path), "npm")
+        assert result["build"] is None
+        assert result["test"] is None
+        assert result["install"] == "npm install"
+
+    def test_install_key_truthy_prevents_fallthrough(self, tmp_path):
+        """With Bug 3 fix, install being set should prevent fallthrough to ecosystem defaults."""
+        from src.pipeline.nodes.detect_commands import _parse_package_json_scripts
+        import json
+
+        pkg = {"name": "test-app", "scripts": {}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+        commands = _parse_package_json_scripts(str(tmp_path), "yarn")
+        # The fixed condition: commands.get("build") or commands.get("test") or commands.get("install")
+        gate = commands and (commands.get("build") or commands.get("test") or commands.get("install"))
+        assert gate, "install should make the gate truthy, preventing fallthrough to defaults"
+
+    def test_with_build_and_test(self, tmp_path):
+        from src.pipeline.nodes.detect_commands import _parse_package_json_scripts
+        import json
+
+        pkg = {"name": "test-app", "scripts": {"build": "next build", "test": "jest"}}
+        (tmp_path / "package.json").write_text(json.dumps(pkg))
+
+        result = _parse_package_json_scripts(str(tmp_path), "npm")
+        assert result["build"] == "npm run build"
+        assert result["test"] == "npm test"
+
+
+# ──────────────────────────────────────────────────────────────
 # Heuristic error analysis
 # ──────────────────────────────────────────────────────────────
 
