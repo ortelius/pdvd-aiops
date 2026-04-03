@@ -123,6 +123,50 @@ def build_graph() -> StateGraph:
     return graph.compile()
 
 
+def _validate_repo_ownership(repo_name: str):
+    """
+    Verify the target repo is owned by the authenticated GitHub user.
+
+    Prevents the pipeline from modifying repos the user doesn't own.
+    Raises RuntimeError if validation fails.
+    """
+    import os
+    import requests
+
+    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+    if not token:
+        return  # Can't validate without a token; let it fail later
+
+    try:
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
+
+        # Get authenticated user
+        user_resp = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+        user_resp.raise_for_status()
+        authenticated_user = user_resp.json()["login"]
+
+        # Get repo info
+        repo_resp = requests.get(
+            f"https://api.github.com/repos/{repo_name}", headers=headers, timeout=10,
+        )
+        repo_resp.raise_for_status()
+        repo_data = repo_resp.json()
+        repo_owner = repo_data.get("owner", {}).get("login", "")
+
+        if repo_owner != authenticated_user:
+            raise RuntimeError(
+                f"Repository '{repo_name}' is owned by '{repo_owner}', "
+                f"but you are authenticated as '{authenticated_user}'. "
+                f"This pipeline can only update repositories you own."
+            )
+
+        print(f"  [validate] Repo ownership confirmed: {authenticated_user}/{repo_name.split('/')[-1]}")
+
+    except requests.RequestException as e:
+        print(f"  [validate] Warning: Could not verify repo ownership: {e}")
+        # Don't block on network errors — let the pipeline proceed
+
+
 def run_pipeline(
     repo_url: str,
     job_id: Optional[str] = None,
@@ -152,6 +196,9 @@ def run_pipeline(
         full_url = repo_url
         parts = full_url.rstrip("/").split("/")
         repo_name = f"{parts[-2]}/{parts[-1]}"
+
+    # Validate repo ownership — only allow updating repos owned by the token holder
+    _validate_repo_ownership(repo_name)
 
     # Initialize cost tracker
     tracker = CostTracker(job_id=job_id)
