@@ -479,6 +479,25 @@ class PersistentMCPServer:
             args["state"] = state
         return await self.call_tool("update_issue", args)
 
+    async def list_issues(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        state: str = "open",
+        labels: Optional[List[str]] = None,
+        per_page: int = 30,
+    ) -> Dict[str, Any]:
+        """List issues in a repository, optionally filtered by labels."""
+        args = {
+            "owner": repo_owner,
+            "repo": repo_name,
+            "state": state,
+            "per_page": per_page,
+        }
+        if labels:
+            args["labels"] = labels
+        return await self.call_tool("list_issues", args)
+
 
 # Convenience functions for getting the global MCP server instance
 async def get_mcp_server() -> PersistentMCPServer:
