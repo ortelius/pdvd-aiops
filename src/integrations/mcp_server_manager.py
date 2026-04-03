@@ -316,15 +316,28 @@ class PersistentMCPServer:
             return {"status": "error", "message": "No response from MCP server"}
 
         except Exception as e:
-            # Try to reconnect on error
-            self._status = MCPServerStatus.ERROR
-            self._error_message = str(e)
+            error_msg = str(e)
+            print(f"  [mcp] Tool '{tool_name}' failed: {error_msg}")
 
-            if await self.reconnect():
-                # Retry the call after reconnection
-                return await self.call_tool(tool_name, arguments)
+            # Don't reconnect for tool-level errors (wrong name, bad args)
+            # Only reconnect for connection-level errors
+            is_connection_error = any(
+                keyword in error_msg.lower()
+                for keyword in ("eof", "connection", "closed", "transport", "broken pipe")
+            )
 
-            return {"status": "error", "message": f"MCP call failed: {str(e)}"}
+            if is_connection_error:
+                self._status = MCPServerStatus.ERROR
+                self._error_message = error_msg
+
+                if await self.reconnect():
+                    # Retry once after reconnection — no further recursion
+                    try:
+                        return await self.call_tool(tool_name, arguments)
+                    except Exception:
+                        pass
+
+            return {"status": "error", "message": f"MCP call failed: {error_msg}"}
 
     async def create_pull_request(
         self,
@@ -465,8 +478,9 @@ class PersistentMCPServer:
         body: Optional[str] = None,
         state: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Update an existing GitHub issue."""
+        """Update an existing GitHub issue via MCP issue_write tool."""
         args = {
+            "method": "update",
             "owner": repo_owner,
             "repo": repo_name,
             "issue_number": issue_number,
@@ -477,7 +491,7 @@ class PersistentMCPServer:
             args["body"] = body
         if state:
             args["state"] = state
-        return await self.call_tool("update_issue", args)
+        return await self.call_tool("issue_write", args)
 
     async def list_issues(
         self,
@@ -487,7 +501,7 @@ class PersistentMCPServer:
         labels: Optional[List[str]] = None,
         per_page: int = 30,
     ) -> Dict[str, Any]:
-        """List issues in a repository, optionally filtered by labels."""
+        """List issues in a repository via MCP."""
         args = {
             "owner": repo_owner,
             "repo": repo_name,
@@ -495,7 +509,7 @@ class PersistentMCPServer:
             "per_page": per_page,
         }
         if labels:
-            args["labels"] = labels
+            args["labels"] = ",".join(labels)
         return await self.call_tool("list_issues", args)
 
 
