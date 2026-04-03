@@ -322,3 +322,19 @@ class PoetryPlugin(EcosystemPlugin):
 
     def outdated_output_format(self) -> str:
         return "text"
+
+    def parse_outdated_text(self, stdout: str) -> list[dict]:
+        """Poetry format: name current latest description..."""
+        results = []
+        for line in stdout.strip().splitlines():
+            line = line.strip()
+            if not line or line.startswith(("!", "-", "=")):
+                continue
+            parts = line.split()
+            if len(parts) >= 3:
+                results.append({
+                    "name": parts[0],
+                    "current": parts[1],
+                    "latest": parts[2],  # column 3, NOT last column
+                })
+        return results

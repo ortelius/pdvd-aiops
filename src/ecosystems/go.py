@@ -25,21 +25,48 @@ class GoPlugin(EcosystemPlugin):
         return "go mod tidy"
 
     def parse_update_diff(self, diff_output: str, outdated_packages: list[dict]) -> list[dict]:
-        """Parse git diff of go.mod to extract actual version changes."""
-        applied = []
-        outdated_map = {p["name"]: p for p in outdated_packages}
+        """Parse git diff of go.mod to extract actual version changes.
 
+        Uses BOTH - lines (old version from go.mod) and + lines (new version)
+        to report what was actually in the file, not the resolved version.
+
+        Marks packages as "direct" (had a - line in go.mod) or
+        "transitive" (only a + line — pulled in by go get -u).
+        """
+        # First pass: collect old versions from removed lines
+        old_versions = {}
+        for line in diff_output.split("\n"):
+            if line.startswith("-") and not line.startswith("---"):
+                match = re.match(r'-[\s\t]+(\S+)\s+(v\S+)', line)
+                if match:
+                    old_versions[match.group(1)] = match.group(2)
+
+        # Second pass: collect new versions from added lines
+        applied = []
         for line in diff_output.split("\n"):
             if line.startswith("+") and not line.startswith("+++"):
-                match = re.match(r'\+\s+(\S+)\s+(v\S+)', line)
+                match = re.match(r'\+[\s\t]+(\S+)\s+(v\S+)', line)
                 if match:
                     pkg_name = match.group(1)
                     new_version = match.group(2)
-                    old_info = outdated_map.get(pkg_name, {})
+
+                    if pkg_name in old_versions:
+                        # Direct dependency — was in go.mod, version changed
+                        old_version = old_versions[pkg_name]
+                        dep_type = "direct"
+                    else:
+                        # Transitive — added by go get -u, not previously in go.mod
+                        # Use go list's resolved version as old if available
+                        outdated_map = {p["name"]: p for p in outdated_packages}
+                        old_info = outdated_map.get(pkg_name, {})
+                        old_version = old_info.get("current", "?")
+                        dep_type = "transitive"
+
                     applied.append({
                         "name": pkg_name,
-                        "old": old_info.get("current", "?"),
+                        "old": old_version,
                         "new": new_version,
+                        "dep_type": dep_type,
                     })
 
         if not applied:

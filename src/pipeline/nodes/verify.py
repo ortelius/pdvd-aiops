@@ -10,11 +10,10 @@ import os
 from typing import Optional
 
 from langchain.agents import create_agent
-from langchain_anthropic import ChatAnthropic
 from langchain_core.tools import tool
 
 from src.callbacks.agent_activity import AgentActivityHandler
-from src.config import DEFAULT_LLM_MODEL
+from src.config.llm import get_llm
 from src.pipeline.state import PipelineState
 from src.tools.verification_tools import (
     build_verification_prompt_section,
@@ -73,6 +72,13 @@ def verify_node(state: PipelineState) -> dict:
         # No verification checks apply — skip
         return {"verification_results": []}
 
+    # Check if LLM is available (skip verification if no API credits)
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key or api_key.startswith("test-") or api_key == "your-anthropic-api-key-here":
+        print("  [verify] Skipping — no Anthropic API key configured")
+        return {"verification_results": [{"check": "skipped", "status": "warn",
+                "detail": "Verification skipped — no API credits available"}]}
+
     if tracker:
         tracker.start_phase("verification_agent")
 
@@ -105,10 +111,7 @@ Repository: {repo_path}
   [{{"check": "name", "status": "pass|warn|fail", "detail": "explanation"}}]
 - Keep responses under 50 words except for the final JSON."""
 
-        llm = ChatAnthropic(
-            model=os.getenv("LLM_MODEL_NAME", DEFAULT_LLM_MODEL),
-            temperature=0,
-        )
+        llm = get_llm(temperature=0)
 
         agent = create_agent(llm, tools, system_prompt=system_prompt)
         handler = AgentActivityHandler("verification")
@@ -139,8 +142,14 @@ Repository: {repo_path}
         return {"verification_results": verification_results}
 
     except Exception as e:
+        error_msg = str(e)
+        if "credit balance" in error_msg or "too low" in error_msg or "401" in error_msg:
+            print(f"  [verify] Skipping — API credits exhausted")
+            return {"verification_results": [
+                {"check": "skipped", "status": "warn", "detail": "Verification skipped — API credits exhausted"}
+            ]}
         return {"verification_results": [
-            {"check": "verification", "status": "error", "detail": str(e)}
+            {"check": "verification", "status": "error", "detail": error_msg[:200]}
         ]}
     finally:
         if tracker:

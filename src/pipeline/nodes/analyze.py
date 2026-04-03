@@ -73,6 +73,78 @@ def _parse_text_outdated(stdout: str, plugin=None) -> list:
     return results
 
 
+def parse_outdated_output(stdout: str, detected_info: dict, plugin=None) -> list[dict]:
+    """
+    Parse raw outdated command output into a list of {name, current, latest} dicts.
+
+    This function handles all output formats (json_dict, json_array, ndjson, text)
+    based on the plugin's declared output_format and field_map.
+
+    Extracted as a standalone function for testability.
+    """
+    output_format = detected_info.get("output_format", "text")
+    field_map = detected_info.get("field_map", {})
+    outdated_list = []
+
+    try:
+        if output_format == "json_dict":
+            data = json.loads(stdout)
+            for pkg_key, info in data.items():
+                name_field = field_map.get("name", "name")
+                outdated_list.append({
+                    "name": pkg_key if name_field == "_key" else info.get(name_field, pkg_key),
+                    "current": info.get(field_map.get("current", "current"), "N/A"),
+                    "latest": info.get(field_map.get("latest", "latest"), "N/A"),
+                })
+
+        elif output_format == "json_array":
+            data = json.loads(stdout)
+            for item in data:
+                outdated_list.append({
+                    "name": item.get(field_map.get("name", "name"), "N/A"),
+                    "current": item.get(field_map.get("current", "current"), "N/A"),
+                    "latest": item.get(field_map.get("latest", "latest"), "N/A"),
+                })
+
+        elif output_format == "ndjson":
+            skip_when = detected_info.get("skip_when", {})
+            decoder = json.JSONDecoder()
+            pos = 0
+            while pos < len(stdout):
+                while pos < len(stdout) and stdout[pos] in " \t\n\r":
+                    pos += 1
+                if pos >= len(stdout):
+                    break
+                try:
+                    obj, end_pos = decoder.raw_decode(stdout, pos)
+                    pos = end_pos
+                except json.JSONDecodeError:
+                    break
+
+                skip = False
+                for key, val in skip_when.items():
+                    if val is None and key not in obj:
+                        skip = True
+                    elif val is not None and obj.get(key) == val:
+                        skip = True
+                if skip:
+                    continue
+
+                outdated_list.append({
+                    "name": _get_nested(obj, field_map.get("name", "name")),
+                    "current": _get_nested(obj, field_map.get("current", "current")),
+                    "latest": _get_nested(obj, field_map.get("latest", "latest")),
+                })
+
+        else:  # text format
+            outdated_list = _parse_text_outdated(stdout, plugin)
+
+    except json.JSONDecodeError:
+        outdated_list = _parse_text_outdated(stdout, plugin)
+
+    return outdated_list
+
+
 def analyze_node(state: PipelineState) -> dict:
     """
     Clone repo, detect ecosystem, check outdated dependencies.
@@ -136,10 +208,16 @@ def analyze_node(state: PipelineState) -> dict:
             "outdated_count": len(outdated),
         }
 
-        if len(outdated) == 0:
+        if len(outdated) == 0 and not plugin.updates_via_command:
+            # For file-based ecosystems: no outdated = nothing to do
             updates["final_status"] = "up_to_date"
             updates["final_message"] = "All dependencies are up to date."
             print(f"  [analyze] All dependencies are up to date!")
+        elif len(outdated) == 0 and plugin.updates_via_command:
+            # For command-based ecosystems (go, cargo): the outdated check
+            # may miss updates that `go get -u` / `cargo update` would find.
+            # Let the prepare node run the update command and check for changes.
+            print(f"  [analyze] Outdated check found 0, but will run update command to verify")
         else:
             print(f"  [analyze] Found {len(outdated)} outdated packages")
 
@@ -156,15 +234,13 @@ def analyze_node(state: PipelineState) -> dict:
 
 
 def _clone_repository(repo_url: str) -> str:
-    """Clone repo with cache support. Returns repo_path."""
-    cache = get_cache()
+    """Clone repo fresh every time. Returns repo_path.
 
-    cached_path = cache.get_cached_repository(repo_url)
-    if cached_path:
-        temp_dir = tempfile.mkdtemp(prefix="dep_analyzer_")
-        shutil.copytree(cached_path, temp_dir, dirs_exist_ok=True)
-        return temp_dir
-
+    We always clone fresh because the pipeline modifies the repo
+    (applies updates, runs go get -u, etc.). Using a cached clone
+    would mean diffing against previously-modified files instead of
+    the real upstream, causing wrong version numbers in PRs.
+    """
     temp_dir = tempfile.mkdtemp(prefix="dep_analyzer_")
     result = subprocess.run(
         ["git", "clone", "--depth", "1", repo_url, temp_dir],
@@ -172,11 +248,6 @@ def _clone_repository(repo_url: str) -> str:
     )
     if result.returncode != 0:
         raise RuntimeError(f"Failed to clone: {result.stderr}")
-
-    try:
-        cache.cache_repository(repo_url, temp_dir)
-    except Exception:
-        pass  # don't fail if caching fails
 
     return temp_dir
 
@@ -205,65 +276,7 @@ def _check_outdated(repo_path: str, repo_url: str, plugin, detected_info: dict) 
     if not stdout:
         return []
 
-    outdated_list = []
-    output_format = detected_info.get("output_format", "text")
-    field_map = detected_info.get("field_map", {})
-
-    try:
-        if output_format == "json_dict":
-            data = json.loads(stdout)
-            for pkg_key, info in data.items():
-                name_field = field_map.get("name", "name")
-                outdated_list.append({
-                    "name": pkg_key if name_field == "_key" else info.get(name_field, pkg_key),
-                    "current": info.get(field_map.get("current", "current"), "N/A"),
-                    "latest": info.get(field_map.get("latest", "latest"), "N/A"),
-                })
-
-        elif output_format == "json_array":
-            data = json.loads(stdout)
-            for item in data:
-                outdated_list.append({
-                    "name": item.get(field_map.get("name", "name"), "N/A"),
-                    "current": item.get(field_map.get("current", "current"), "N/A"),
-                    "latest": item.get(field_map.get("latest", "latest"), "N/A"),
-                })
-
-        elif output_format == "ndjson":
-            skip_when = detected_info.get("skip_when", {})
-            decoder = json.JSONDecoder()
-            pos = 0
-            while pos < len(stdout):
-                while pos < len(stdout) and stdout[pos] in " \t\n\r":
-                    pos += 1
-                if pos >= len(stdout):
-                    break
-                try:
-                    obj, end_pos = decoder.raw_decode(stdout, pos)
-                    pos = end_pos
-                except json.JSONDecodeError:
-                    break
-
-                skip = False
-                for key, val in skip_when.items():
-                    if val is None and key not in obj:
-                        skip = True
-                    elif val is not None and obj.get(key) == val:
-                        skip = True
-                if skip:
-                    continue
-
-                outdated_list.append({
-                    "name": _get_nested(obj, field_map.get("name", "name")),
-                    "current": _get_nested(obj, field_map.get("current", "current")),
-                    "latest": _get_nested(obj, field_map.get("latest", "latest")),
-                })
-
-        else:  # text format
-            outdated_list = _parse_text_outdated(stdout, plugin)
-
-    except json.JSONDecodeError:
-        outdated_list = _parse_text_outdated(stdout, plugin)
+    outdated_list = parse_outdated_output(stdout, detected_info, plugin)
 
     # Cache results
     try:

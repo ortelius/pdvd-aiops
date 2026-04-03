@@ -15,6 +15,9 @@ dependencies = [
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.0.0",
     "requests>=2.28.0",
+    "pytest",
+    "langchain-google-genai",
+    "langchain-groq"
 ]
 
 [project.optional-dependencies]
@@ -38,3 +41,4 @@ include = ["src*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--ignore=tests/e2e_projects"

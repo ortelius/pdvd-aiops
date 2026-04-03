@@ -178,13 +178,9 @@ def _heuristic_error_analysis(error_output: str, applied_updates: list[dict]) ->
 def _llm_error_analysis(error_output: str, applied_updates: list[dict], tracker=None) -> Optional[dict]:
     """Use Haiku to identify problematic package when heuristics fail."""
     try:
-        from langchain_anthropic import ChatAnthropic
+        from src.config.llm import get_llm
 
-        llm = ChatAnthropic(
-            model="claude-haiku-4-5-20251001",
-            temperature=0,
-            max_tokens=200,
-        )
+        llm = get_llm(temperature=0, max_tokens=200)
 
         updates_str = ", ".join(
             f"{u['name']} ({u.get('old', '?')} → {u.get('new', '?')})"
