@@ -15,6 +15,7 @@ import requests
 
 API_BASE = "http://127.0.0.1:8000"
 REPO_PREFIX = os.getenv("REPO_PREFIX", "pdvd")
+REPO_OWNERS = [o.strip() for o in os.getenv("REPO_OWNERS", "").split(",") if o.strip()]
 GITHUB_TOKEN = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN", "")
 POLL_INTERVAL = 30  # seconds
 SERVER_STARTUP_TIMEOUT = 120  # seconds
@@ -31,13 +32,16 @@ def _get_authenticated_owner() -> str:
 
 def list_repos_with_prefix(prefix: str) -> list[str]:
     """
-    Fetch repos for the authenticated user matching the given prefix.
+    Fetch repos matching the given prefix that the token has push access to.
 
-    Only returns repos owned by the authenticated user — excludes forks,
-    collaborator repos, and repos from other owners/orgs.
+    Filters by REPO_OWNERS (from env) — only repos owned by those users/orgs.
+    If REPO_OWNERS is not set, falls back to the authenticated user only.
     """
     owner = _get_authenticated_owner()
+    allowed_owners = set(REPO_OWNERS) if REPO_OWNERS else {owner}
+
     print(f"Authenticated as: {owner}")
+    print(f"Allowed owners: {', '.join(sorted(allowed_owners))}")
 
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
     repos = []
@@ -54,14 +58,18 @@ def list_repos_with_prefix(prefix: str) -> list[str]:
         if not batch:
             break
         for repo in batch:
-            repo_owner = repo.get("owner", {}).get("login", "")
-            is_fork = repo.get("fork", False)
+            if not repo["name"].startswith(prefix):
+                continue
 
-            # Only include repos owned by the authenticated user, not forks
-            if repo_owner == owner and not is_fork and repo["name"].startswith(prefix):
+            repo_owner = repo.get("owner", {}).get("login", "")
+            has_push = repo.get("permissions", {}).get("push", False)
+
+            if repo_owner in allowed_owners and has_push:
                 repos.append(repo["full_name"])
-            elif repo["name"].startswith(prefix):
-                print(f"  Skipping {repo['full_name']} (owner={repo_owner}, fork={is_fork})")
+            elif repo_owner not in allowed_owners:
+                print(f"  Skipping {repo['full_name']} (owner={repo_owner} not in allowed list)")
+            elif not has_push:
+                print(f"  Skipping {repo['full_name']} (no push access)")
         page += 1
 
     return repos
