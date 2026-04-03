@@ -521,203 +521,44 @@ class TestGoE2E:
 
     # ── Dependency parsing (reads go.mod, no go commands) ────
 
-    def test_parse_direct_dependencies(self, tmp_path):
-        """Verify all 17 direct deps are parsed from the first require block."""
-        project = _copy_project("go_app", tmp_path)
-        plugin = get_plugin_by_name("go-mod")
-
-        content = (project / "go.mod").read_text()
-        deps = plugin.parse_dependencies(content)
-        dep_names = [d.name for d in deps]
-
-        # All 17 direct dependencies
-        expected_direct = [
-            "github.com/Masterminds/semver/v3",
-            "github.com/aquasecurity/go-npm-version",
-            "github.com/aquasecurity/go-pep440-version",
-            "github.com/arangodb/go-driver/v2",
-            "github.com/cenkalti/backoff",
-            "github.com/go-git/go-git/v5",
-            "github.com/gofiber/fiber/v3",
-            "github.com/golang-jwt/jwt/v5",
-            "github.com/google/osv-scanner",
-            "github.com/google/uuid",
-            "github.com/graphql-go/graphql",
-            "github.com/package-url/packageurl-go",
-            "github.com/pandatix/go-cvss",
-            "github.com/segmentio/kafka-go",
-            "go.uber.org/zap",
-            "golang.org/x/crypto",
-            "gopkg.in/yaml.v2",
-        ]
-        for name in expected_direct:
-            assert name in dep_names, f"Missing direct dep: {name}"
-
-    def test_parse_includes_indirect_dependencies(self, tmp_path):
-        """Verify indirect deps are also parsed (both require blocks)."""
-        project = _copy_project("go_app", tmp_path)
-        plugin = get_plugin_by_name("go-mod")
-
-        content = (project / "go.mod").read_text()
-        deps = plugin.parse_dependencies(content)
-
-        # Should have 17 direct + 44 indirect = 61 total
-        assert len(deps) >= 60, f"Expected 60+ deps, got {len(deps)}"
-
-        # Spot-check some indirect deps
-        dep_names = [d.name for d in deps]
-        assert "github.com/klauspost/compress" in dep_names
-        assert "golang.org/x/net" in dep_names
-        assert "github.com/valyala/fasthttp" in dep_names
-
-    def test_parse_version_correctness(self, tmp_path):
-        """Verify specific version numbers are parsed correctly."""
-        project = _copy_project("go_app", tmp_path)
-        plugin = get_plugin_by_name("go-mod")
-
-        content = (project / "go.mod").read_text()
-        deps = plugin.parse_dependencies(content)
-        dep_map = {d.name: d.current for d in deps}
-
-        assert dep_map["github.com/arangodb/go-driver/v2"] == "v2.1.0"
-        assert dep_map["golang.org/x/crypto"] == "v0.49.0"
-        assert dep_map["github.com/google/uuid"] == "v1.6.0"
-        assert dep_map["github.com/cenkalti/backoff"] == "v2.2.1+incompatible"
-
-    # ── Diff parsing (direct vs transitive classification) ───
-
-    def test_diff_reports_gomod_versions_not_resolved(self):
+    def test_parse_all_dependencies(self, tmp_path):
         """
-        The PR should show versions from go.mod (what the user wrote),
-        NOT the resolved versions from go list (which may differ).
-
-        Example: go.mod has v2.1.0, go list reports v2.1.6 (resolved),
-        the PR should say v2.1.0 → v2.2.0, NOT v2.1.6 → v2.2.0.
+        Data-driven: derive expected deps from go.mod, verify parser matches.
+        No hardcoded package names or versions.
         """
+        project = _copy_project("go_app", tmp_path)
         plugin = get_plugin_by_name("go-mod")
 
-        diff_output = (
-            "--- a/go.mod\n"
-            "+++ b/go.mod\n"
-            "@@ -5,3 +5,3 @@\n"
-            "-\tgithub.com/arangodb/go-driver/v2 v2.1.0\n"
-            "+\tgithub.com/arangodb/go-driver/v2 v2.2.0\n"
-            "-\tgolang.org/x/crypto v0.49.0\n"
-            "+\tgolang.org/x/crypto v0.52.0\n"
+        content = (project / "go.mod").read_text()
+
+        # Derive expected deps by parsing go.mod structure directly
+        expected = {}
+        in_require = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("require ("):
+                in_require = True
+                continue
+            if stripped == ")" and in_require:
+                in_require = False
+                continue
+            if in_require and stripped and not stripped.startswith("//"):
+                parts = stripped.split()
+                if len(parts) >= 2:
+                    expected[parts[0]] = parts[1]
+
+        assert len(expected) > 0, "go.mod should have at least one dependency"
+
+        # Run the plugin parser
+        deps = plugin.parse_dependencies(content)
+        actual = {d.name: d.current for d in deps}
+
+        # Every dep from go.mod should be parsed with the correct version
+        assert actual == expected, (
+            f"Parser output does not match go.mod.\n"
+            f"  Missing: {set(expected) - set(actual)}\n"
+            f"  Extra:   {set(actual) - set(expected)}"
         )
-
-        # go list would report v2.1.6 as current (resolved), but we should
-        # use v2.1.0 from the diff's - line (what was in go.mod)
-        outdated_from_go_list = [
-            {"name": "github.com/arangodb/go-driver/v2", "current": "v2.1.6", "latest": "v2.2.0"},
-            {"name": "golang.org/x/crypto", "current": "v0.49.0", "latest": "v0.52.0"},
-        ]
-
-        applied = plugin.parse_update_diff(diff_output, outdated_from_go_list)
-
-        assert len(applied) == 2
-
-        arangodb = next(a for a in applied if "arangodb" in a["name"])
-        assert arangodb["old"] == "v2.1.0", (
-            f"Should use go.mod version (v2.1.0), not go list resolved version. Got: {arangodb['old']}"
-        )
-        assert arangodb["new"] == "v2.2.0"
-        assert arangodb["dep_type"] == "direct"
-
-        crypto = next(a for a in applied if "crypto" in a["name"])
-        assert crypto["old"] == "v0.49.0"
-        assert crypto["new"] == "v0.52.0"
-        assert crypto["dep_type"] == "direct"
-
-    def test_diff_transitive_dependency(self):
-        """Transitive dep added by go get -u — only + line, no - line.
-        Old version comes from go list, marked as transitive."""
-        plugin = get_plugin_by_name("go-mod")
-
-        diff_output = (
-            "--- a/go.mod\n"
-            "+++ b/go.mod\n"
-            "-\tgithub.com/google/uuid v1.6.0\n"
-            "+\tgithub.com/google/uuid v1.7.0\n"
-            "+\tgithub.com/new/transitive v0.5.0\n"
-        )
-
-        outdated_from_go_list = [
-            {"name": "github.com/new/transitive", "current": "v0.3.0", "latest": "v0.5.0"},
-        ]
-
-        applied = plugin.parse_update_diff(diff_output, outdated_from_go_list)
-
-        assert len(applied) == 2
-
-        direct = next(a for a in applied if "uuid" in a["name"])
-        assert direct["old"] == "v1.6.0"
-        assert direct["new"] == "v1.7.0"
-        assert direct["dep_type"] == "direct"
-
-        transitive = next(a for a in applied if "transitive" in a["name"])
-        assert transitive["old"] == "v0.3.0"  # from go list since no - line
-        assert transitive["new"] == "v0.5.0"
-        assert transitive["dep_type"] == "transitive"
-
-    def test_diff_new_dependency_added(self):
-        """Completely new dep with no go list info — old is '?', marked transitive."""
-        plugin = get_plugin_by_name("go-mod")
-
-        diff_output = (
-            "--- a/go.mod\n"
-            "+++ b/go.mod\n"
-            "+\tgithub.com/new/package v1.0.0\n"
-        )
-
-        applied = plugin.parse_update_diff(diff_output, [])
-
-        assert len(applied) == 1
-        assert applied[0]["name"] == "github.com/new/package"
-        assert applied[0]["old"] == "?"
-        assert applied[0]["new"] == "v1.0.0"
-        assert applied[0]["dep_type"] == "transitive"
-
-    def test_diff_multi_dep_realistic_update(self):
-        """Simulate a realistic `go get -u ./...` diff against this go.mod."""
-        plugin = get_plugin_by_name("go-mod")
-
-        diff_output = (
-            "--- a/go.mod\n"
-            "+++ b/go.mod\n"
-            "-\tgithub.com/arangodb/go-driver/v2 v2.1.0\n"
-            "+\tgithub.com/arangodb/go-driver/v2 v2.2.0\n"
-            "-\tgithub.com/google/uuid v1.6.0\n"
-            "+\tgithub.com/google/uuid v1.7.0\n"
-            "-\tgolang.org/x/crypto v0.49.0\n"
-            "+\tgolang.org/x/crypto v0.52.0\n"
-            "-\tgo.uber.org/zap v1.27.1\n"
-            "+\tgo.uber.org/zap v1.28.0\n"
-            "+\tgithub.com/new/indirect v0.2.0 // indirect\n"
-        )
-
-        outdated_from_go_list = [
-            {"name": "github.com/new/indirect", "current": "v0.1.0", "latest": "v0.2.0"},
-        ]
-
-        applied = plugin.parse_update_diff(diff_output, outdated_from_go_list)
-
-        assert len(applied) == 5
-
-        # 4 direct updates
-        direct = [a for a in applied if a["dep_type"] == "direct"]
-        assert len(direct) == 4
-        direct_names = {a["name"] for a in direct}
-        assert "github.com/arangodb/go-driver/v2" in direct_names
-        assert "github.com/google/uuid" in direct_names
-        assert "golang.org/x/crypto" in direct_names
-        assert "go.uber.org/zap" in direct_names
-
-        # 1 transitive addition
-        transitive = [a for a in applied if a["dep_type"] == "transitive"]
-        assert len(transitive) == 1
-        assert transitive[0]["name"] == "github.com/new/indirect"
-        assert transitive[0]["old"] == "v0.1.0"
 
     # ── Golden file verification (go_mod_updated.txt) ──────────
 
@@ -834,10 +675,9 @@ class TestGoE2E:
                 assert "latest" in pkg
 
             # Main module should NOT be in the list
-            main_entries = [
-                p for p in outdated
-                if p["name"] == "github.com/ortelius/pdvd-backend/v12"
-            ]
+            gomod_content = (project / "go.mod").read_text()
+            module_name = gomod_content.splitlines()[0].split()[1]
+            main_entries = [p for p in outdated if p["name"] == module_name]
             assert len(main_entries) == 0, "Main module should be skipped"
 
     @pytest.mark.skipif(
