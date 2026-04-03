@@ -37,5 +37,5 @@ jobs:
           GITHUB_PERSONAL_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           REPO_PREFIX: pdvd
-          REPO_OWNERS: codeWithUtkarsh
+          REPO_OWNERS: ortelius
         run: python scripts/scheduled_update.py
