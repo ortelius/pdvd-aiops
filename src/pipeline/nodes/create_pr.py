@@ -27,7 +27,6 @@ def create_pr_node(state: PipelineState) -> dict:
     test_log = state.get("test_log", "")
     has_tests = state.get("has_tests", True)
     has_test_command = state.get("has_test_command", True)
-    verification_results = state.get("verification_results")
     tracker = state.get("cost_tracker")
 
     if tracker:
@@ -72,7 +71,9 @@ def create_pr_node(state: PipelineState) -> dict:
             test_log=test_log,
             has_tests=has_tests,
             has_test_command=has_test_command,
-            verification_results=verification_results,
+            integration_results=state.get("integration_results"),
+            audit_results=state.get("audit_results"),
+            detected_integrations=state.get("detected_integrations"),
         )
 
         pr_result = create_github_pr(repo_name, branch_name, title, body)

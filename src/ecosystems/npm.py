@@ -82,6 +82,10 @@ class NpmPlugin(EcosystemPlugin):
             "lint": "npm run lint",
         }
 
+    def release_url(self, package_name: str, version: str) -> str:
+        ver = version.lstrip("^~>=v")
+        return f"https://www.npmjs.com/package/{package_name}/v/{ver}"
+
     def outdated_command(self) -> str:
         return "npm outdated --json"
 
@@ -90,6 +94,27 @@ class NpmPlugin(EcosystemPlugin):
 
     def outdated_field_map(self) -> dict:
         return {"name": "_key", "current": "current", "latest": "latest"}
+
+    def audit_command(self) -> str:
+        return "npm audit --json"
+
+    def audit_output_format(self) -> str:
+        return "json"
+
+    def parse_audit_output(self, stdout: str, stderr: str) -> list[dict]:
+        try:
+            data = json.loads(stdout)
+            findings = []
+            for vuln_id, info in data.get("vulnerabilities", {}).items():
+                findings.append({
+                    "package": info.get("name", vuln_id),
+                    "severity": info.get("severity", "unknown"),
+                    "vulnerability": vuln_id,
+                    "detail": info.get("title", info.get("range", "")),
+                })
+            return findings
+        except (json.JSONDecodeError, AttributeError):
+            return super().parse_audit_output(stdout, stderr)
 
 
 @register

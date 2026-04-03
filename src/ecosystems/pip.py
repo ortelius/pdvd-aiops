@@ -228,6 +228,10 @@ class PipPlugin(EcosystemPlugin):
     def outdated_field_map(self) -> dict:
         return {"name": "name", "current": "version", "latest": "latest_version"}
 
+    def release_url(self, package_name: str, version: str) -> str:
+        ver = version.lstrip("^~>=v")
+        return f"https://pypi.org/project/{package_name}/{ver}/"
+
     def ci_build_patterns(self) -> list[str]:
         return [r'pip install', r'python.*setup\.py']
 
@@ -236,6 +240,36 @@ class PipPlugin(EcosystemPlugin):
 
     def ci_install_patterns(self) -> list[str]:
         return [r'pip install', r'pip3 install']
+
+    def audit_command(self) -> str:
+        return "pip-audit --format json"
+
+    def audit_install_command(self) -> str:
+        return "pip install pip-audit"
+
+    def audit_uninstall_command(self) -> str:
+        return "pip uninstall pip-audit -y"
+
+    def audit_output_format(self) -> str:
+        return "json"
+
+    def parse_audit_output(self, stdout: str, stderr: str) -> list[dict]:
+        import json as _json
+        try:
+            data = _json.loads(stdout)
+            findings = []
+            for entry in data.get("dependencies", data) if isinstance(data, dict) else data:
+                if isinstance(entry, dict) and entry.get("vulns"):
+                    for vuln in entry["vulns"]:
+                        findings.append({
+                            "package": entry.get("name", "unknown"),
+                            "severity": vuln.get("aliases", ["unknown"])[0] if vuln.get("aliases") else "unknown",
+                            "vulnerability": vuln.get("id", "unknown"),
+                            "detail": vuln.get("description", "")[:500],
+                        })
+            return findings
+        except (_json.JSONDecodeError, TypeError):
+            return super().parse_audit_output(stdout, stderr)
 
 
 @register

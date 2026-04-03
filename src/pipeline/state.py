@@ -45,6 +45,13 @@ class PipelineState(TypedDict, total=False):
     retry_count: int
     rollback_history: list[dict]  # [{package, from_version, to_version}, ...]
 
+    # ── Integration detection & execution ────────────────
+    detected_integrations: Optional[list[dict]]  # [{name, category, config_file, run_command, ...}]
+    integration_results: Optional[list[dict]]  # [{name, category, status, stdout, findings}]
+
+    # ── Security audit ────────────────────────────────────
+    audit_results: Optional[list[dict]]  # [{source, status, findings}]
+
     # ── Verification ─────────────────────────────────────
     verification_results: Optional[list[dict]]  # [{check, status, detail}, ...]
 

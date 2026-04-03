@@ -46,9 +46,9 @@ def route_after_test(state: PipelineState) -> str:
     """After test, decide: pass → verify, fail → rollback or issue."""
     test_result = state.get("test_result", {})
 
-    # Tests passed (or no tests)
+    # Tests passed (or no tests) → run integrations & security audit
     if test_result.get("succeeded", False):
-        return "verify"
+        return "run_integrations"
 
     # Tests failed — can we retry?
     retry_count = state.get("retry_count", 0)
