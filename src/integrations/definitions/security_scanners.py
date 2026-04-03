@@ -171,6 +171,8 @@ register_integration(
     config_files=[".tfsec/", "*.tf"],
     run_command="tfsec . --format json",
     detect_command="tfsec --version",
+    install_command="go install github.com/aquasecurity/tfsec/cmd/tfsec@latest",
+    uninstall_command="rm -f $(go env GOPATH)/bin/tfsec",
     output_format="json",
     ecosystem=None,
     severity="warning",

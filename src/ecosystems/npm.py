@@ -157,6 +157,43 @@ class YarnPlugin(EcosystemPlugin):
     def outdated_output_format(self) -> str:
         return "text"
 
+    def parse_outdated_text(self, stdout: str) -> list[dict]:
+        """Parse yarn v1 outdated text format.
+
+        Yarn outputs a preamble (version, color legend, info lines)
+        followed by a table with header:
+          Package  Current  Wanted  Latest  Package Type  URL
+        We skip everything before the header and parse data rows.
+        Column indices: 0=Package, 1=Current, 2=Wanted, 3=Latest.
+        """
+        results = []
+        header_found = False
+
+        for line in stdout.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            # Detect the header row
+            if not header_found:
+                if "Package" in line and "Current" in line and "Latest" in line:
+                    header_found = True
+                continue
+
+            # After header: skip footer lines
+            if line.startswith("Done "):
+                continue
+
+            parts = line.split()
+            if len(parts) >= 4:
+                results.append({
+                    "name": parts[0],
+                    "current": parts[1],
+                    "latest": parts[3],  # index 3 = Latest (index 2 = Wanted)
+                })
+
+        return results
+
 
 @register
 class PnpmPlugin(EcosystemPlugin):
