@@ -23,6 +23,9 @@ class PipelineState(TypedDict, total=False):
     outdated_packages: Optional[list[dict]]
     outdated_count: int
 
+    # ── Environment ────────────────────────────────────
+    repo_python: Optional[str]  # venv python path (if ecosystem needs one)
+
     # ── Detect commands phase ────────────────────────────
     build_commands: Optional[dict]  # {install, build, test, lint, ...}
     commands_source: Optional[str]  # "ci_config" | "haiku_llm" | "ecosystem_default"
@@ -44,6 +47,10 @@ class PipelineState(TypedDict, total=False):
     # ── Rollback loop ────────────────────────────────────
     retry_count: int
     rollback_history: list[dict]  # [{package, from_version, to_version}, ...]
+
+    # ── Security fixes ─────────────────────────────────────
+    security_fixes_applied: Optional[list[dict]]  # [{name, old, new, vulnerability}, ...]
+    unfixable_cves: Optional[list[dict]]  # [{package, vulnerability, detail}, ...]
 
     # ── Integration detection & execution ────────────────
     detected_integrations: Optional[list[dict]]  # [{name, category, config_file, run_command, ...}]

@@ -182,6 +182,24 @@ class EcosystemPlugin(ABC):
         """
         return []
 
+    # ── Environment setup ──────────────────────────────────
+
+    def setup_environment(self, repo_path: str) -> Optional[str]:
+        """
+        Set up an isolated environment for the repo (e.g. venv for Python).
+
+        Called by the analyze node before running outdated/audit commands.
+        Returns the path to the environment's interpreter (e.g. venv python),
+        or None if no special setup is needed.
+
+        Override in subclasses that need isolated environments (pip, poetry).
+        """
+        return None
+
+    def teardown_environment(self, repo_path: str):
+        """Clean up the isolated environment. Override if setup_environment creates one."""
+        pass
+
     # ── Release URL ────────────────────────────────────────
 
     def release_url(self, package_name: str, version: str) -> Optional[str]:
@@ -215,7 +233,8 @@ class EcosystemPlugin(ABC):
         Parse audit command output into structured findings.
 
         Returns list of:
-            {"package": str, "severity": str, "vulnerability": str, "detail": str}
+            {"package": str, "severity": str, "vulnerability": str, "detail": str,
+             "fix_versions": list[str], "current_version": str}
 
         Override in subclasses for ecosystem-specific parsing.
         Default: treats non-empty output as a single raw finding.
@@ -223,8 +242,31 @@ class EcosystemPlugin(ABC):
         output = (stdout or stderr or "").strip()
         if output:
             return [{"package": "unknown", "severity": "unknown",
-                     "vulnerability": "audit_finding", "detail": output[:2000]}]
+                     "vulnerability": "audit_finding", "detail": output[:2000],
+                     "fix_versions": [], "current_version": ""}]
         return []
+
+    def security_fix_command(self, package_name: str, fix_version: str) -> Optional[str]:
+        """
+        Return a command to fix a specific package to a security-safe version.
+        For command-based ecosystems (go, cargo). Returns None to use apply_updates instead.
+        """
+        return None
+
+    def add_todo_comment(self, content: str, package_name: str, vulnerability_id: str, file_name: str = "") -> str:
+        """
+        Add a TODO comment above a dependency line for unfixable CVEs.
+
+        Default: insert a `# TODO:` comment above the line containing the package name.
+        Override in subclasses where `#` comments are not valid (e.g. JSON).
+        """
+        lines = content.split("\n")
+        updated = []
+        for line in lines:
+            if package_name.lower() in line.lower() and not line.strip().startswith("#"):
+                updated.append(f"# TODO: {vulnerability_id} affects {package_name} — no fix available yet")
+            updated.append(line)
+        return "\n".join(updated)
 
 
 # ── Plugin Registry ──────────────────────────────────────────

@@ -13,42 +13,12 @@ Both sources are combined into a single audit_results list.
 import os
 import shutil
 import subprocess
-import sys
 
 from src.ecosystems import get_plugin_by_name
 from src.integrations.registry import run_integration
 from src.pipeline.state import PipelineState
-
-
-def _get_env():
-    """Get environment with PATH that includes tool binary directories."""
-    env = os.environ.copy()
-    extra_paths = []
-
-    # Python bin
-    python_bin = os.path.dirname(sys.executable)
-    if python_bin not in env.get("PATH", ""):
-        extra_paths.append(python_bin)
-
-    # Go bin (GOPATH/bin)
-    gopath = env.get("GOPATH") or os.path.expanduser("~/go")
-    gobin = os.path.join(gopath, "bin")
-    if gobin not in env.get("PATH", ""):
-        extra_paths.append(gobin)
-
-    # Cargo bin (~/.cargo/bin)
-    cargo_bin = os.path.expanduser("~/.cargo/bin")
-    if os.path.isdir(cargo_bin) and cargo_bin not in env.get("PATH", ""):
-        extra_paths.append(cargo_bin)
-
-    if extra_paths:
-        env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
-
-    # Renovate expects GITHUB_TOKEN
-    if not env.get("GITHUB_TOKEN") and env.get("GITHUB_PERSONAL_ACCESS_TOKEN"):
-        env["GITHUB_TOKEN"] = env["GITHUB_PERSONAL_ACCESS_TOKEN"]
-
-    return env
+from src.utils.env import get_pipeline_env
+from src.utils.subprocess import run_cmd
 
 
 def security_audit_node(state: PipelineState) -> dict:
@@ -73,72 +43,86 @@ def security_audit_node(state: PipelineState) -> dict:
         if plugin:
             audit_cmd = plugin.audit_command()
             if audit_cmd:
-                audit_cmd = plugin.fix_command(audit_cmd)
+                # Fix command for current system (uses venv python if available)
+                try:
+                    audit_cmd = plugin.fix_command(audit_cmd, repo_path=repo_path)
+                except TypeError:
+                    audit_cmd = plugin.fix_command(audit_cmd)
+
                 auto_installed = False
 
-                # Auto-install audit tool if not available
-                audit_bin = audit_cmd.split()[0]
-                env = _get_env()
-                path_dirs = env.get("PATH", "")
-                if not shutil.which(audit_bin, path=path_dirs) and plugin.audit_install_command():
-                    print(f"  [security_audit] {audit_bin} not found, auto-installing...")
-                    try:
-                        install_result = subprocess.run(
-                            plugin.audit_install_command(), shell=True,
-                            capture_output=True, text=True, timeout=120, env=_get_env(),
-                        )
-                        if install_result.returncode == 0:
-                            auto_installed = True
-                            print(f"  [security_audit] {audit_bin} installed successfully")
-                        else:
-                            print(f"  [security_audit] {audit_bin} install failed: {install_result.stderr[:200]}")
-                    except Exception as e:
-                        print(f"  [security_audit] {audit_bin} install error: {e}")
+                # Try running the audit command directly; auto-install if it fails
+                print(f"  [security_audit] Running ecosystem audit: {audit_cmd}")
+                try:
+                    proc = run_cmd(
+                        audit_cmd, timeout=120, cwd=repo_path, env=get_pipeline_env(),
+                    )
+                except (subprocess.TimeoutExpired, Exception):
+                    proc = None
 
-                if shutil.which(audit_bin, path=_get_env().get("PATH", "")) or auto_installed:
-                    print(f"  [security_audit] Running ecosystem audit: {audit_cmd}")
-                    try:
-                        proc = subprocess.run(
-                            audit_cmd, shell=True, capture_output=True, text=True,
-                            timeout=120, cwd=repo_path, env=_get_env(),
-                        )
+                # If command not found / module missing, try auto-install
+                error_text = (proc.stderr or "").lower() if proc else ""
+                needs_install = (
+                    proc is None
+                    or (proc.returncode != 0 and (
+                        "not found" in error_text
+                        or "no module named" in error_text
+                        or "command not found" in error_text
+                    ))
+                )
+                if needs_install:
+                    install_cmd = plugin.audit_install_command()
+                    if install_cmd:
+                        # Fix install command too (pip → python -m pip)
+                        try:
+                            install_cmd = plugin.fix_command(install_cmd, repo_path=repo_path)
+                        except TypeError:
+                            install_cmd = plugin.fix_command(install_cmd)
 
-                        findings = plugin.parse_audit_output(proc.stdout, proc.stderr)
-                        status = "pass" if proc.returncode == 0 else "warning"
-
-                        results.append({
-                            "source": f"{package_manager}_audit",
-                            "status": status,
-                            "findings": findings,
-                            "finding_count": len(findings),
-                            "stdout": proc.stdout[-3000:] if proc.stdout else "",
-                            "stderr": proc.stderr[-1000:] if proc.stderr else "",
-                        })
-
-                        print(f"  [security_audit] {package_manager}: {len(findings)} findings")
-
-                    except subprocess.TimeoutExpired:
-                        results.append({
-                            "source": f"{package_manager}_audit",
-                            "status": "error",
-                            "findings": [],
-                            "finding_count": 0,
-                        })
-                    except Exception as e:
-                        print(f"  [security_audit] {package_manager} audit error: {e}")
-                    finally:
-                        # Auto-uninstall if we installed it
-                        if auto_installed and plugin.audit_uninstall_command():
-                            print(f"  [security_audit] Cleaning up {audit_bin}...")
-                            try:
-                                subprocess.run(
-                                    plugin.audit_uninstall_command(), shell=True,
-                                    capture_output=True, timeout=60, env=_get_env(),
+                        print(f"  [security_audit] Audit tool not found, auto-installing...")
+                        try:
+                            install_result = run_cmd(
+                                install_cmd, timeout=120, env=get_pipeline_env(),
+                            )
+                            if install_result.returncode == 0:
+                                auto_installed = True
+                                print(f"  [security_audit] Installed successfully, retrying audit...")
+                                proc = run_cmd(
+                                    audit_cmd, timeout=120, cwd=repo_path, env=get_pipeline_env(),
                                 )
-                            except Exception:
-                                pass
-                else:
-                    print(f"  [security_audit] {audit_bin} not available, skipping")
+                            else:
+                                print(f"  [security_audit] Install failed: {install_result.stderr[:200]}")
+                        except Exception as e:
+                            print(f"  [security_audit] Install error: {e}")
+
+                if proc and proc.returncode is not None:
+                    findings = plugin.parse_audit_output(proc.stdout or "", proc.stderr or "")
+                    status = "pass" if proc.returncode == 0 else "warning"
+
+                    results.append({
+                        "source": f"{package_manager}_audit",
+                        "status": status,
+                        "findings": findings,
+                        "finding_count": len(findings),
+                        "stdout": proc.stdout[-3000:] if proc.stdout else "",
+                        "stderr": proc.stderr[-1000:] if proc.stderr else "",
+                    })
+                    print(f"  [security_audit] {package_manager}: {len(findings)} findings")
+
+                # Auto-uninstall if we installed it
+                if auto_installed and plugin.audit_uninstall_command():
+                    uninstall_cmd = plugin.audit_uninstall_command()
+                    try:
+                        uninstall_cmd = plugin.fix_command(uninstall_cmd, repo_path=repo_path)
+                    except TypeError:
+                        uninstall_cmd = plugin.fix_command(uninstall_cmd)
+                    print(f"  [security_audit] Cleaning up audit tool...")
+                    try:
+                        run_cmd(
+                            uninstall_cmd, timeout=60, env=get_pipeline_env(),
+                        )
+                    except Exception:
+                        pass
 
                 if tracker:
                     tracker.record_tool_call(f"audit_{package_manager}")

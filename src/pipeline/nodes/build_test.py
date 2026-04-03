@@ -7,18 +7,11 @@ Uses the ecosystem plugin's fix_command() to ensure commands work on the system.
 
 import os
 import subprocess
-import sys
 
 from src.ecosystems import get_plugin_by_name
 from src.pipeline.state import PipelineState
-
-
-def _get_env():
-    env = os.environ.copy()
-    python_bin = os.path.dirname(sys.executable)
-    if python_bin not in env.get("PATH", ""):
-        env["PATH"] = python_bin + os.pathsep + env.get("PATH", "")
-    return env
+from src.utils.env import get_pipeline_env
+from src.utils.subprocess import run_cmd
 
 
 # Patterns that indicate no tests were found
@@ -51,7 +44,10 @@ def build_node(state: PipelineState) -> dict:
     # Let the plugin fix the command for the current system
     plugin = get_plugin_by_name(package_manager)
     if plugin:
-        build_cmd = plugin.fix_command(build_cmd)
+        try:
+            build_cmd = plugin.fix_command(build_cmd, repo_path=repo_path)
+        except TypeError:
+            build_cmd = plugin.fix_command(build_cmd)
 
     if tracker:
         tracker.start_phase("build")
@@ -100,7 +96,10 @@ def test_node(state: PipelineState) -> dict:
     # Let the plugin fix the command for the current system
     plugin = get_plugin_by_name(package_manager)
     if plugin:
-        test_cmd = plugin.fix_command(test_cmd)
+        try:
+            test_cmd = plugin.fix_command(test_cmd, repo_path=repo_path)
+        except TypeError:
+            test_cmd = plugin.fix_command(test_cmd)
 
     if tracker:
         tracker.start_phase("test")
@@ -137,9 +136,8 @@ def test_node(state: PipelineState) -> dict:
 def _run_command(repo_path: str, command: str, timeout: int = 300) -> dict:
     """Execute a command and return structured result."""
     try:
-        result = subprocess.run(
-            command, shell=True, capture_output=True, text=True,
-            timeout=timeout, cwd=repo_path, env=_get_env(),
+        result = run_cmd(
+            command, timeout=timeout, cwd=repo_path, env=get_pipeline_env(repo_path),
         )
         return {
             "succeeded": result.returncode == 0,

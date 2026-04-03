@@ -8,9 +8,65 @@ The MCP integration is preserved.
 
 import json
 import os
+import re
 import subprocess
 from datetime import datetime
 from typing import Optional
+
+
+def _extract_pr_url(data, owner: str = "", repo: str = "") -> str:
+    """
+    Extract the PR URL from an MCP response, handling all known response shapes.
+
+    The GitHub MCP server may return the PR data in different structures:
+    - {"html_url": "..."} — top-level
+    - {"url": "https://api.github.com/..."} — API URL (needs conversion)
+    - {"number": 123} — just the PR number (we build the URL)
+    - A string containing the URL
+    - Nested inside a sub-key
+
+    Returns the html_url or empty string.
+    """
+    if isinstance(data, str):
+        # Try to extract a URL from the string
+        match = re.search(r'https://github\.com/[^\s"\']+/pull/\d+', data)
+        if match:
+            return match.group(0)
+        return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    # Direct html_url
+    url = data.get("html_url", "")
+    if url and "github.com" in url:
+        return url
+
+    # API URL → convert to html_url
+    api_url = data.get("url", "")
+    if api_url and "api.github.com" in api_url:
+        # https://api.github.com/repos/owner/repo/pulls/123 → https://github.com/owner/repo/pull/123
+        html = api_url.replace("api.github.com/repos", "github.com").replace("/pulls/", "/pull/")
+        if "/pull/" in html:
+            return html
+
+    # Just a PR number — build the URL
+    pr_number = data.get("number")
+    if pr_number and owner and repo:
+        return f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+
+    # Search nested dicts (one level deep)
+    for key in ("pull_request", "data", "result"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            url = nested.get("html_url", "") or nested.get("url", "")
+            if url and "github.com" in url:
+                return url
+            nr = nested.get("number")
+            if nr and owner and repo:
+                return f"https://github.com/{owner}/{repo}/pull/{nr}"
+
+    return ""
 
 
 def get_repo_owner_name(repo_path: str) -> tuple[str, str]:
@@ -186,11 +242,23 @@ def _find_existing_pr(owner: str, repo: str, branch_name: str) -> Optional[dict]
             data = result.get("data", [])
             # MCP may return list directly or nested
             prs = data if isinstance(data, list) else data.get("items", []) if isinstance(data, dict) else []
+
+            if not prs:
+                print(f"  [create_pr] DEBUG list_pull_requests returned 0 PRs (data type={type(data).__name__}, keys={list(data.keys()) if isinstance(data, dict) else 'N/A'})")
+                # If data is a dict with PR-like fields, it might BE the PR
+                if isinstance(data, dict) and data.get("number"):
+                    return data
+
             for pr in prs:
                 if isinstance(pr, dict) and pr.get("head", {}).get("ref") == branch_name:
                     return pr
-    except Exception:
-        pass
+
+            # If no exact match on head.ref, return the first PR (likely ours)
+            if prs and isinstance(prs[0], dict):
+                print(f"  [create_pr] DEBUG no head.ref match, using first PR: number={prs[0].get('number')}")
+                return prs[0]
+    except Exception as e:
+        print(f"  [create_pr] DEBUG _find_existing_pr error: {e}")
     return None
 
 
@@ -204,9 +272,11 @@ def _update_existing_pr(owner: str, repo: str, pr_number: int, title: str, body:
 
         if result.get("status") == "success":
             data = result.get("data", {})
-            pr_url = ""
-            if isinstance(data, dict):
-                pr_url = data.get("html_url", "") or data.get("url", "")
+            pr_url = _extract_pr_url(data, owner, repo)
+            if not pr_url:
+                pr_url = _extract_pr_url(result, owner, repo)
+            if not pr_url and pr_number:
+                pr_url = f"https://github.com/{owner}/{repo}/pull/{pr_number}"
             return {"status": "success", "pr_url": pr_url}
         return {"status": "error", "message": result.get("message", "")}
     except Exception as e:
@@ -251,12 +321,26 @@ def create_github_pr(
     result = _run_mcp_call(_create_pr, owner, repo, title, body, branch_name, base_branch)
 
     if result["status"] == "success":
-        pr_url = ""
         data = result.get("data", {})
-        if isinstance(data, dict):
-            pr_url = data.get("html_url", "") or data.get("url", "")
+        pr_url = _extract_pr_url(data, owner, repo)
         if not pr_url:
-            pr_url = result.get("pr_url", "")
+            pr_url = _extract_pr_url(result, owner, repo)
+        if not pr_url:
+            # Debug: dump what MCP actually returned so we can fix extraction
+            _data_summary = str(data)[:500] if data else "(empty)"
+            print(f"  [create_pr] DEBUG MCP response data: {_data_summary}")
+            # Fallback: query the PR list to find the URL
+            print(f"  [create_pr] PR created but URL not in response, looking up...")
+            existing = _find_existing_pr(owner, repo, branch_name)
+            if existing:
+                pr_url = _extract_pr_url(existing, owner, repo)
+            else:
+                print(f"  [create_pr] DEBUG _find_existing_pr returned None")
+        if not pr_url:
+            # Last resort: construct URL from owner/repo — PR must exist since status=success
+            # We don't know the number, so link to the PR list filtered by branch
+            pr_url = f"https://github.com/{owner}/{repo}/pulls?q=head:{branch_name}"
+            print(f"  [create_pr] Using fallback PR list URL: {pr_url}")
         return {"status": "success", "pr_url": pr_url}
 
     # PR creation may fail if one already exists (race condition / MCP quirk)
@@ -264,7 +348,7 @@ def create_github_pr(
     if "already exists" in error_msg:
         existing = _find_existing_pr(owner, repo, branch_name)
         if existing:
-            pr_url = existing.get("html_url", "")
+            pr_url = _extract_pr_url(existing, owner, repo)
             _update_existing_pr(owner, repo, existing["number"], title, body)
             return {"status": "success", "pr_url": pr_url}
 
@@ -291,14 +375,259 @@ def create_github_issue(
     result = _run_mcp_call(_create_issue, parts[0], parts[1], title, body, labels)
 
     if result["status"] == "success":
-        issue_url = ""
         data = result.get("data", {})
+        issue_url = ""
         if isinstance(data, dict):
             issue_url = data.get("html_url", "") or data.get("url", "")
+            # Fallback: build from issue number
+            if not issue_url and data.get("number"):
+                issue_url = f"https://github.com/{parts[0]}/{parts[1]}/issues/{data['number']}"
         if not issue_url:
             issue_url = result.get("issue_url", "")
         return {"status": "success", "issue_url": issue_url}
     return {"status": "error", "message": result.get("message", "Unknown error")}
+
+
+# ── Security Issue (find-or-update) ────────────────────────────
+
+SECURITY_ISSUE_TITLE = "Security: unfixable CVEs in dependencies"
+SECURITY_ISSUE_LABEL = "security"
+SECURITY_ISSUE_MARKER = "<!-- pdvd-aiops-security-tracker -->"
+
+
+def _find_existing_security_issue(owner: str, repo: str) -> Optional[dict]:
+    """
+    Search for an existing pdvd-aiops security issue in the repo.
+
+    Uses the hidden HTML marker comment to identify our issue regardless of
+    title edits. Falls back to title search if marker search fails.
+    """
+    try:
+        async def _search(server, q):
+            return await server.search_issues(query=q)
+
+        # Search by marker in body — most reliable
+        query = f"repo:{owner}/{repo} is:issue is:open \"{SECURITY_ISSUE_MARKER}\" in:body"
+        result = _run_mcp_call(_search, query)
+
+        if result.get("status") == "success":
+            data = result.get("data", {})
+            items = []
+            if isinstance(data, dict):
+                items = data.get("items", [])
+            elif isinstance(data, list):
+                items = data
+            if items and isinstance(items[0], dict):
+                return items[0]
+
+        # Fallback: search by label + title keywords
+        query = f"repo:{owner}/{repo} is:issue is:open label:{SECURITY_ISSUE_LABEL} \"unfixable CVE\" in:title"
+        result = _run_mcp_call(_search, query)
+
+        if result.get("status") == "success":
+            data = result.get("data", {})
+            items = []
+            if isinstance(data, dict):
+                items = data.get("items", [])
+            elif isinstance(data, list):
+                items = data
+            if items and isinstance(items[0], dict):
+                return items[0]
+
+    except Exception as e:
+        print(f"  [security_issue] Search failed: {e}")
+
+    return None
+
+
+def _update_github_issue(
+    owner: str, repo: str, issue_number: int, title: str, body: str
+) -> dict:
+    """Update an existing GitHub issue via MCP."""
+    try:
+        async def _update(server, o, r, num, t, b):
+            return await server.update_issue(o, r, num, title=t, body=b)
+
+        result = _run_mcp_call(_update, owner, repo, issue_number, title, body)
+
+        if result.get("status") == "success":
+            data = result.get("data", {})
+            issue_url = ""
+            if isinstance(data, dict):
+                issue_url = data.get("html_url", "") or data.get("url", "")
+                if not issue_url and data.get("number"):
+                    issue_url = f"https://github.com/{owner}/{repo}/issues/{data['number']}"
+            if not issue_url:
+                issue_url = f"https://github.com/{owner}/{repo}/issues/{issue_number}"
+            return {"status": "success", "issue_url": issue_url}
+        return {"status": "error", "message": result.get("message", "")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+def find_or_update_security_issue(
+    repo_name: str,
+    unfixable_cves: list[dict],
+    audit_results: list[dict],
+    package_manager: str = "",
+) -> dict:
+    """
+    Create or update a single security tracking issue for unfixable CVEs.
+
+    If an existing pdvd-aiops security issue exists, updates it with the
+    latest findings. Otherwise creates a new one. This ensures one issue
+    per repo that acts as a living security tracker.
+
+    Returns: {"status": "issue_created"|"issue_updated", "issue_url": str}
+    """
+    parts = repo_name.split("/")
+    if len(parts) != 2:
+        return {"status": "error", "message": f"Invalid repo format: {repo_name}"}
+    owner, repo = parts
+
+    title, body = format_security_issue_body(
+        unfixable_cves=unfixable_cves,
+        audit_results=audit_results,
+        package_manager=package_manager,
+        repo_name=repo_name,
+    )
+
+    # Check for existing issue
+    existing = _find_existing_security_issue(owner, repo)
+
+    if existing:
+        issue_number = existing.get("number")
+        issue_url = existing.get("html_url", "")
+        if not issue_url:
+            issue_url = f"https://github.com/{owner}/{repo}/issues/{issue_number}"
+
+        print(f"  [security_issue] Found existing issue #{issue_number}, updating...")
+        update_result = _update_github_issue(owner, repo, issue_number, title, body)
+
+        if update_result.get("status") == "success":
+            return {
+                "status": "issue_updated",
+                "issue_url": update_result.get("issue_url") or issue_url,
+            }
+        # Fall through to create if update fails
+
+    # Create new issue
+    result = create_github_issue(
+        repo_name, title, body, labels=[SECURITY_ISSUE_LABEL, "dependencies"],
+    )
+
+    if result["status"] == "success":
+        return {"status": "issue_created", "issue_url": result.get("issue_url", "")}
+
+    return {"status": "error", "message": result.get("message", "Failed to create issue")}
+
+
+def format_security_issue_body(
+    unfixable_cves: list[dict],
+    audit_results: list[dict],
+    package_manager: str = "",
+    repo_name: str = "",
+) -> tuple[str, str]:
+    """
+    Build a detailed issue title and body for unfixable CVEs.
+
+    Returns: (title, body)
+    """
+    cve_count = len(unfixable_cves)
+    pkg_names = sorted(set(c.get("package", "unknown") for c in unfixable_cves))
+
+    title = f"Security: {cve_count} unfixable CVE(s) in dependencies — action needed when fixes are available"
+
+    body = f"{SECURITY_ISSUE_MARKER}\n\n"
+    body += "## Unfixable Vulnerabilities Detected\n\n"
+    body += (
+        f"The automated dependency scanner ([pdvd-aiops](https://github.com/codeWithUtkarsh/pdvd-aiops)) "
+        f"found **{cve_count} CVE(s)** in dependencies that **cannot be automatically fixed** at this time.\n\n"
+    )
+    body += (
+        "These vulnerabilities either have no fix version released yet, or affect "
+        "**transitive dependencies** that are not directly listed in the project's dependency file.\n\n"
+    )
+
+    # ── CVE Details Table ──
+    body += "### CVE Details\n\n"
+    body += "| CVE ID | Package | Severity | Detail | Fix Status |\n"
+    body += "|--------|---------|----------|--------|------------|\n"
+
+    for cve in unfixable_cves:
+        vuln_id = cve.get("vulnerability", "unknown")
+        package = cve.get("package", "unknown")
+        detail = cve.get("detail", "No details available")
+        # Truncate long details for table readability
+        detail_short = detail[:150] + "..." if len(detail) > 150 else detail
+        # Escape pipe characters in detail to not break markdown table
+        detail_short = detail_short.replace("|", "\\|")
+
+        vuln_link = _linkify_vuln_id(vuln_id)
+        fix_status = "No fix available"
+
+        body += f"| {vuln_link} | `{package}` | - | {detail_short} | {fix_status} |\n"
+
+    # ── Affected Packages Summary ──
+    body += "\n### Affected Packages\n\n"
+    for pkg in pkg_names:
+        pkg_cves = [c for c in unfixable_cves if c.get("package") == pkg]
+        cve_ids = ", ".join(_linkify_vuln_id(c.get("vulnerability", "")) for c in pkg_cves)
+        body += f"- **`{pkg}`** — {len(pkg_cves)} CVE(s): {cve_ids}\n"
+
+    # ── Why These Can't Be Fixed ──
+    body += "\n### Why These Can't Be Auto-Fixed\n\n"
+    body += "| Reason | Explanation |\n"
+    body += "|--------|-------------|\n"
+    body += "| **Transitive dependency** | The vulnerable package is pulled in by another dependency, not listed directly in your dependency file. Updating requires the parent package to release a new version. |\n"
+    body += "| **No fix version released** | The vulnerability has been reported but the maintainers haven't released a patched version yet. |\n"
+
+    # ── What You Can Do ──
+    body += "\n### Recommended Actions\n\n"
+    body += "1. **Monitor for fix releases** — Subscribe to the CVE links above for updates\n"
+    body += "2. **Check if parent packages have updates** — A transitive dependency fix often comes via updating the direct dependency that pulls it in\n"
+    if package_manager:
+        if package_manager in ("pip", "poetry"):
+            body += f"3. **Override transitive versions** — Use `pip install {' '.join(pkg_names)}==<fixed_version>` or add constraints to `constraints.txt`\n"
+        elif package_manager in ("npm", "yarn", "pnpm"):
+            body += f"3. **Override transitive versions** — Add `overrides` (npm) or `resolutions` (yarn) in `package.json`\n"
+        elif package_manager == "go-mod":
+            body += f"3. **Replace transitive modules** — Use `replace` directives in `go.mod` to pin to a fixed version\n"
+        elif package_manager == "cargo":
+            body += f"3. **Patch transitive crates** — Use `[patch]` section in `Cargo.toml` to override versions\n"
+    body += (
+        f"4. **Accept the risk** — If the vulnerable code path is not reachable in your application, "
+        f"document the decision and close this issue\n"
+    )
+
+    # ── Full Audit Results ──
+    if audit_results:
+        total_findings = sum(r.get("finding_count", 0) for r in audit_results)
+        body += "\n### Full Audit Summary\n\n"
+        body += "| Scanner | Status | Findings |\n"
+        body += "|---------|--------|----------|\n"
+        for r in audit_results:
+            status = r.get("status", "unknown")
+            icon = ":white_check_mark:" if status == "pass" else ":warning:"
+            count = r.get("finding_count", 0)
+            body += f"| {icon} {r.get('source', '')} | {status} | {count} |\n"
+
+    # ── Metadata ──
+    body += "\n---\n\n"
+    body += "<details><summary>Scan metadata</summary>\n\n"
+    body += f"- **Repository**: `{repo_name}`\n"
+    body += f"- **Package manager**: `{package_manager}`\n"
+    body += f"- **Scanner**: pdvd-aiops (automated)\n"
+    body += f"- **Scan date**: {datetime.now().strftime('%Y-%m-%d %H:%M UTC')}\n"
+    body += f"- **Unfixable CVEs**: {cve_count}\n"
+    body += f"- **Affected packages**: {', '.join(pkg_names)}\n"
+    body += "\n</details>\n\n"
+    body += (
+        "> **This issue is automatically managed by pdvd-aiops.** "
+        "It will be updated on each scan. When all CVEs are resolved, you can close this issue.\n"
+    )
+
+    return title, body
 
 
 def format_pr_body(applied_updates: list[dict], package_manager: str,
@@ -307,14 +636,26 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
                     integration_results: list[dict] = None,
                     audit_results: list[dict] = None,
                     detected_integrations: list[dict] = None,
-                    verification_results: list[dict] = None) -> tuple[str, str]:
+                    verification_results: list[dict] = None,
+                    security_fixes: list[dict] = None,
+                    unfixable_cves: list[dict] = None) -> tuple[str, str]:
     """
     Build PR title and body from update data.
 
     Returns:
         (title, body)
     """
-    title = f"chore(deps): update {len(applied_updates)} dependencies"
+    # Determine PR type based on content
+    security_fixes = security_fixes or []
+    unfixable_cves = unfixable_cves or []
+    is_security_pr = security_fixes and not build_log
+
+    if is_security_pr:
+        title = f"fix(security): patch {len(security_fixes)} CVE(s) in dependencies"
+    elif applied_updates:
+        title = f"chore(deps): update {len(applied_updates)} dependencies"
+    else:
+        title = "chore(deps): dependency maintenance"
 
     # Get ecosystem plugin for release URLs
     from src.ecosystems import get_plugin_by_name
@@ -352,6 +693,26 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
         for u in applied_updates:
             release = _format_release_link(plugin, u["name"], u["new"])
             body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` | {release} |\n"
+
+    # Security fixes section
+    if security_fixes:
+        body += "\n\n## Security Fixes Applied\n\n"
+        body += "| Package | CVE(s) | Old | Fixed | Release |\n"
+        body += "|---------|--------|-----|-------|--------|\n"
+        for sf in security_fixes:
+            vuln_links = ", ".join(_linkify_vuln_id(v.strip()) for v in sf.get("vulnerability", "").split(",") if v.strip())
+            release = _format_release_link(plugin, sf["name"], sf["new"])
+            body += f"| `{sf['name']}` | {vuln_links} | `{sf.get('old', '?')}` | `{sf['new']}` | {release} |\n"
+        body += "\n:warning: **Security fixes have not been build-tested.** Please verify in CI before merging.\n"
+
+    if unfixable_cves:
+        body += "\n\n## Unfixable CVEs (TODO)\n\n"
+        body += "The following vulnerabilities have **no fix available** yet. TODO comments have been added to the dependency file.\n\n"
+        body += "| Package | CVE | Detail |\n"
+        body += "|---------|-----|--------|\n"
+        for uf in unfixable_cves:
+            vuln_link = _linkify_vuln_id(uf.get("vulnerability", ""))
+            body += f"| `{uf.get('package', '')}` | {vuln_link} | {uf.get('detail', '')[:200]} |\n"
 
     # Build/test logs
     log_section = "\n\n---\n\nAll updates have been tested and verified:\n"

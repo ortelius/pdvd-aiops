@@ -106,11 +106,17 @@ class NpmPlugin(EcosystemPlugin):
             data = json.loads(stdout)
             findings = []
             for vuln_id, info in data.get("vulnerabilities", {}).items():
+                fix_available = info.get("fixAvailable", False)
+                fix_versions = []
+                if isinstance(fix_available, dict):
+                    fix_versions = [fix_available.get("version", "")]
                 findings.append({
                     "package": info.get("name", vuln_id),
+                    "current_version": info.get("range", ""),
                     "severity": info.get("severity", "unknown"),
                     "vulnerability": vuln_id,
                     "detail": info.get("title", info.get("range", "")),
+                    "fix_versions": [v for v in fix_versions if v],
                 })
             return findings
         except (json.JSONDecodeError, AttributeError):

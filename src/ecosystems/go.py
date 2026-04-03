@@ -6,6 +6,18 @@ from typing import Optional
 from src.ecosystems import EcosystemPlugin, register, Dependency
 
 
+def _extract_go_fix_versions(osv_entry: dict) -> list[str]:
+    """Extract fix versions from OSV affected[].ranges[].events[{fixed}]."""
+    fix_versions = []
+    for affected in osv_entry.get("affected", []):
+        for rng in affected.get("ranges", []):
+            for event in rng.get("events", []):
+                fixed = event.get("fixed")
+                if fixed and fixed not in fix_versions:
+                    fix_versions.append(fixed)
+    return fix_versions
+
+
 @register
 class GoPlugin(EcosystemPlugin):
     name = "go-mod"
@@ -151,6 +163,9 @@ class GoPlugin(EcosystemPlugin):
     def ci_install_patterns(self) -> list[str]:
         return [r'go mod download']
 
+    def security_fix_command(self, package_name: str, fix_version: str) -> str:
+        return f"go get {package_name}@v{fix_version.lstrip('v')} && go mod tidy"
+
     def audit_command(self) -> str:
         return "govulncheck -json ./..."
 
@@ -225,6 +240,7 @@ class GoPlugin(EcosystemPlugin):
                                 "severity": cve,
                                 "vulnerability": osv_id,
                                 "detail": osv_entry.get("summary", "")[:500],
+                                "fix_versions": _extract_go_fix_versions(osv_entry),
                             })
 
             # Also report OSV advisories that affect deps even if
@@ -235,7 +251,6 @@ class GoPlugin(EcosystemPlugin):
                 seen.add(osv_id)
                 aliases = osv_entry.get("aliases", [])
                 cve = aliases[0] if aliases else osv_id
-                # Get affected package name from the advisory
                 affected = osv_entry.get("affected", [])
                 pkg_name = affected[0].get("package", {}).get("name", "unknown") if affected else "unknown"
                 called = "called" if osv_id in finding_osv_ids else "not called"
@@ -245,6 +260,7 @@ class GoPlugin(EcosystemPlugin):
                     "severity": f"{cve} ({called})",
                     "vulnerability": osv_id,
                     "detail": osv_entry.get("summary", "")[:500],
+                    "fix_versions": _extract_go_fix_versions(osv_entry),
                 })
 
         except Exception:

@@ -11,20 +11,12 @@ When tests fail, this node:
 import json
 import os
 import re
-import sys
 from typing import Optional
 
 from src.ecosystems import get_plugin_by_name
 from src.pipeline.state import PipelineState
-
-
-def _get_env():
-    """Get environment with PATH that includes the current Python's bin directory."""
-    env = os.environ.copy()
-    python_bin = os.path.dirname(sys.executable)
-    if python_bin not in env.get("PATH", ""):
-        env["PATH"] = python_bin + os.pathsep + env.get("PATH", "")
-    return env
+from src.utils.env import get_pipeline_env
+from src.utils.subprocess import run_cmd
 
 
 def rollback_node(state: PipelineState) -> dict:
@@ -73,12 +65,10 @@ def rollback_node(state: PipelineState) -> dict:
 
         if plugin.rollback_via_command:
             # Command-based rollback (go, etc.)
-            import subprocess
             cmd = plugin.rollback_command(pkg_name, old_version)
             if cmd:
                 cmd = plugin.fix_command(cmd)
-                subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                               timeout=120, cwd=repo_path, env=_get_env())
+                run_cmd(cmd, timeout=120, cwd=repo_path, env=get_pipeline_env(repo_path))
             if tracker:
                 tracker.record_tool_call("rollback_command", pkg_name)
         else:
@@ -99,13 +89,11 @@ def rollback_node(state: PipelineState) -> dict:
                     tracker.record_tool_call("rollback_file", pkg_name)
 
             # Run install after rollback
-            import subprocess
             build_commands = state.get("build_commands", {})
             install_cmd = build_commands.get("install") or plugin.default_commands().get("install")
             if install_cmd:
                 install_cmd = plugin.fix_command(install_cmd)
-                subprocess.run(install_cmd, shell=True, capture_output=True, text=True,
-                               timeout=300, cwd=repo_path, env=_get_env())
+                run_cmd(install_cmd, timeout=300, cwd=repo_path, env=get_pipeline_env(repo_path))
 
         # Update rollback history
         rollback_history.append({

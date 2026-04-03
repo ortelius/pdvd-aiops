@@ -6,22 +6,29 @@ Creates a branch, pushes files, and creates a GitHub PR via MCP.
 
 from src.pipeline.state import PipelineState
 from src.tools.github_tools import (
+    FIXED_BRANCH_NAME,
     create_branch,
     create_github_pr,
     format_pr_body,
     push_files,
 )
 
+SECURITY_BRANCH_NAME = "pdvd-aiops/security-fix"
+
 
 def create_pr_node(state: PipelineState) -> dict:
     """
     Create branch → push files → create PR.
+
+    Uses a different branch for security-fix-only PRs vs dependency update PRs.
 
     Returns: branch_name, pr_url, final_status, final_url, final_message
     """
     repo_path = state["repo_path"]
     repo_name = state["repo_name"]
     applied_updates = state.get("applied_updates", [])
+    security_fixes = state.get("security_fixes_applied") or []
+    unfixable_cves = state.get("unfixable_cves") or []
     package_manager = state.get("package_manager", "")
     build_log = state.get("build_log", "")
     test_log = state.get("test_log", "")
@@ -29,12 +36,16 @@ def create_pr_node(state: PipelineState) -> dict:
     has_test_command = state.get("has_test_command", True)
     tracker = state.get("cost_tracker")
 
+    # Use security branch if this is a security-fix-only PR
+    is_security_only = security_fixes and not build_log
+    branch_name_override = SECURITY_BRANCH_NAME if is_security_only else None
+
     if tracker:
         tracker.start_phase("create_pr")
 
     try:
         # Step 1: Create branch
-        branch_result = create_branch(repo_path)
+        branch_result = create_branch(repo_path, branch_name=branch_name_override)
         if tracker:
             tracker.record_tool_call("create_branch")
 
@@ -74,6 +85,8 @@ def create_pr_node(state: PipelineState) -> dict:
             integration_results=state.get("integration_results"),
             audit_results=state.get("audit_results"),
             detected_integrations=state.get("detected_integrations"),
+            security_fixes=security_fixes,
+            unfixable_cves=unfixable_cves,
         )
 
         pr_result = create_github_pr(repo_name, branch_name, title, body)

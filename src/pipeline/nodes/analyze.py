@@ -9,28 +9,25 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 from src.ecosystems import detect_ecosystem, get_plugin_by_name
 from src.pipeline.state import PipelineState
 from src.services.cache import get_cache
+from src.utils.env import get_pipeline_env
+from src.utils.subprocess import run_cmd
 
 
-def _get_env():
-    """Get environment with PATH that includes the current Python's bin directory."""
-    env = os.environ.copy()
-    python_bin = os.path.dirname(sys.executable)
-    if python_bin not in env.get("PATH", ""):
-        env["PATH"] = python_bin + os.pathsep + env.get("PATH", "")
-    return env
-
-
-def _fix_command(cmd: str, plugin=None) -> str:
+def _fix_command(cmd: str, plugin=None, repo_path: str = "") -> str:
     """Let the plugin fix the command for the current system."""
     if plugin:
-        return plugin.fix_command(cmd)
+        # Pass repo_path so pip plugin can use venv python
+        try:
+            return plugin.fix_command(cmd, repo_path=repo_path)
+        except TypeError:
+            # Plugins that don't accept repo_path
+            return plugin.fix_command(cmd)
     return cmd
 
 
@@ -167,7 +164,17 @@ def analyze_node(state: PipelineState) -> dict:
             tracker.record_tool_call("clone_repository")
 
         # ── Step 2: Detect ecosystem ─────────────────────────
-        repo_files = {p.name for p in Path(repo_path).rglob("*") if p.is_file()}
+        # Only scan root-level files for detection — dependency manifests
+        # (requirements.txt, go.mod, package.json, etc.) are always at the root.
+        # rglob would pick up files in subdirectories (e.g. test fixtures).
+        repo_root = Path(repo_path)
+        repo_files = {p.name for p in repo_root.iterdir() if p.is_file()}
+        # Also include .github/ files for CI detection
+        github_dir = repo_root / ".github"
+        if github_dir.exists():
+            for p in github_dir.rglob("*"):
+                if p.is_file():
+                    repo_files.add(p.name)
         plugin = detect_ecosystem(repo_files)
 
         if not plugin:
@@ -192,8 +199,13 @@ def analyze_node(state: PipelineState) -> dict:
             "skip_when": plugin.outdated_skip_when(),
         }
 
-        # ── Step 3: Check outdated ───────────────────────────
+        # ── Step 2.5: Set up environment (venv for Python, etc.) ──
         print(f"  [analyze] Detected: {plugin.language}/{plugin.name}")
+        repo_python = plugin.setup_environment(repo_path)
+        if tracker and repo_python:
+            tracker.record_tool_call("setup_environment")
+
+        # ── Step 3: Check outdated ───────────────────────────
         print(f"  [analyze] Checking outdated packages...")
         outdated = _check_outdated(repo_path, repo_url, plugin, detected_info)
         if tracker:
@@ -201,6 +213,7 @@ def analyze_node(state: PipelineState) -> dict:
 
         updates = {
             "repo_path": repo_path,
+            "repo_python": repo_python,
             "language": plugin.language,
             "package_manager": plugin.name,
             "detected_info": detected_info,
@@ -265,11 +278,10 @@ def _check_outdated(repo_path: str, repo_url: str, plugin, detected_info: dict) 
     if not outdated_cmd:
         return []
 
-    outdated_cmd = _fix_command(outdated_cmd, plugin)
+    outdated_cmd = _fix_command(outdated_cmd, plugin, repo_path)
 
-    result = subprocess.run(
-        outdated_cmd.split(), capture_output=True, text=True,
-        timeout=120, cwd=repo_path, env=_get_env(),
+    result = run_cmd(
+        outdated_cmd, timeout=120, cwd=repo_path, env=get_pipeline_env(repo_path),
     )
 
     stdout = result.stdout.strip()

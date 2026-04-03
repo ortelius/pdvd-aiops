@@ -446,6 +446,39 @@ class PersistentMCPServer:
             args["body"] = body
         return await self.call_tool("update_pull_request", args)
 
+    async def search_issues(
+        self,
+        query: str,
+    ) -> Dict[str, Any]:
+        """Search GitHub issues using the search API via MCP."""
+        return await self.call_tool(
+            "search_issues",
+            {"query": query},
+        )
+
+    async def update_issue(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: int,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update an existing GitHub issue."""
+        args = {
+            "owner": repo_owner,
+            "repo": repo_name,
+            "issue_number": issue_number,
+        }
+        if title:
+            args["title"] = title
+        if body:
+            args["body"] = body
+        if state:
+            args["state"] = state
+        return await self.call_tool("update_issue", args)
+
 
 # Convenience functions for getting the global MCP server instance
 async def get_mcp_server() -> PersistentMCPServer:

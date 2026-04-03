@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.utils.subprocess import run_cmd
+
 
 @dataclass
 class IntegrationDef:
@@ -232,9 +234,8 @@ def _auto_install(integration: dict) -> bool:
         return False
     try:
         print(f"  [auto-install] Installing {integration['name']}...")
-        result = subprocess.run(
-            install_cmd, shell=True, capture_output=True, text=True,
-            timeout=120, env=_get_integration_env(),
+        result = run_cmd(
+            install_cmd, timeout=120, env=_get_integration_env(),
         )
         if result.returncode == 0:
             print(f"  [auto-install] {integration['name']} installed successfully")
@@ -254,9 +255,8 @@ def _auto_uninstall(integration: dict):
         return
     try:
         print(f"  [auto-install] Cleaning up {integration['name']}...")
-        subprocess.run(
-            uninstall_cmd, shell=True, capture_output=True, text=True,
-            timeout=60, env=_get_integration_env(),
+        run_cmd(
+            uninstall_cmd, timeout=60, env=_get_integration_env(),
         )
     except Exception:
         pass  # best-effort cleanup
@@ -292,9 +292,8 @@ def run_integration(
                     "findings": [],
                 }
 
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True,
-            timeout=timeout, cwd=repo_path, env=_get_integration_env(),
+        result = run_cmd(
+            cmd, timeout=timeout, cwd=repo_path, env=_get_integration_env(),
         )
 
         # Parse output if a parser is registered

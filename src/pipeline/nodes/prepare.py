@@ -8,20 +8,12 @@ The node never checks which package manager it's dealing with.
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from src.ecosystems import get_plugin_by_name
 from src.pipeline.state import PipelineState
-
-
-def _get_env():
-    """Get environment with PATH that includes the current Python's bin directory."""
-    env = os.environ.copy()
-    python_bin = os.path.dirname(sys.executable)
-    if python_bin not in env.get("PATH", ""):
-        env["PATH"] = python_bin + os.pathsep + env.get("PATH", "")
-    return env
+from src.utils.env import get_pipeline_env
+from src.utils.subprocess import run_cmd
 
 
 def prepare_node(state: PipelineState) -> dict:
@@ -64,12 +56,14 @@ def _update_via_command(repo_path, plugin, outdated_packages, build_commands, tr
     if not update_cmd:
         return {"final_status": "up_to_date", "final_message": "No update command available"}
 
-    update_cmd = plugin.fix_command(update_cmd)
+    try:
+        update_cmd = plugin.fix_command(update_cmd, repo_path=repo_path)
+    except TypeError:
+        update_cmd = plugin.fix_command(update_cmd)
     print(f"  [prepare] Running: {update_cmd}")
 
-    result = subprocess.run(
-        update_cmd, shell=True, capture_output=True, text=True,
-        timeout=300, cwd=repo_path, env=_get_env(),
+    result = run_cmd(
+        update_cmd, timeout=300, cwd=repo_path, env=get_pipeline_env(repo_path),
     )
     if result.returncode != 0:
         print(f"  [prepare] Command failed (exit {result.returncode}): {result.stderr[-300:]}")
@@ -80,10 +74,12 @@ def _update_via_command(repo_path, plugin, outdated_packages, build_commands, tr
     # Run post-update command if any (e.g. go mod tidy)
     post_cmd = plugin.post_update_command()
     if post_cmd:
-        post_cmd = plugin.fix_command(post_cmd)
-        subprocess.run(
-            post_cmd, shell=True, capture_output=True, text=True,
-            timeout=120, cwd=repo_path, env=_get_env(),
+        try:
+            post_cmd = plugin.fix_command(post_cmd, repo_path=repo_path)
+        except TypeError:
+            post_cmd = plugin.fix_command(post_cmd)
+        run_cmd(
+            post_cmd, timeout=120, cwd=repo_path, env=get_pipeline_env(repo_path),
         )
 
     # Check if files actually changed
@@ -113,8 +109,8 @@ def _update_via_command(repo_path, plugin, outdated_packages, build_commands, tr
 
 def _update_via_file(repo_path, plugin, outdated_packages, build_commands, tracker):
     """Update strategy for ecosystems that edit a dependency file (npm, pip, etc.)."""
-    # Ask the plugin which file to edit based on what actually exists
-    repo_files = {p.name for p in Path(repo_path).rglob("*") if p.is_file()}
+    # Ask the plugin which file to edit based on what exists at the repo root
+    repo_files = {p.name for p in Path(repo_path).iterdir() if p.is_file()}
     dep_file = plugin.resolve_dependency_file(repo_files)
     dep_path = os.path.join(repo_path, dep_file) if dep_file else ""
 
@@ -128,12 +124,15 @@ def _update_via_file(repo_path, plugin, outdated_packages, build_commands, track
         tracker.record_tool_call("read_dependency_file")
 
     # Apply updates via plugin — pass file_name so it knows the format
-    print(f"  [prepare] Applying {len(outdated_packages)} updates to {dep_file}...")
+    print(f"  [prepare] Outdated packages ({len(outdated_packages)}):")
+    for pkg in outdated_packages:
+        print(f"  [prepare]   {pkg.get('name')}: {pkg.get('current')} → {pkg.get('latest')}")
     updated_content, applied = plugin.apply_updates(original_content, outdated_packages, file_name=dep_file)
 
     if not applied:
-        print(f"  [prepare] No updates could be applied to {dep_file}")
-        return {"final_status": "up_to_date", "final_message": f"No matching packages found in {dep_file}"}
+        # All outdated packages may be transitive deps not listed in the dependency file
+        print(f"  [prepare] No direct dependency updates found in {dep_file} (outdated packages may be transitive)")
+        return {"final_status": "up_to_date", "final_message": "All direct dependencies are up to date. Outdated packages are transitive dependencies."}
 
     print(f"  [prepare] Applied {len(applied)} updates")
 
@@ -150,11 +149,16 @@ def _update_via_file(repo_path, plugin, outdated_packages, build_commands, track
     # Run install command
     install_cmd = build_commands.get("install") or plugin.default_commands().get("install")
     if install_cmd:
-        install_cmd = plugin.fix_command(install_cmd)
-        subprocess.run(
-            install_cmd, shell=True, capture_output=True, text=True,
-            timeout=300, cwd=repo_path, env=_get_env(),
+        try:
+            install_cmd = plugin.fix_command(install_cmd, repo_path=repo_path)
+        except TypeError:
+            install_cmd = plugin.fix_command(install_cmd)
+        print(f"  [prepare] Running install: {install_cmd}")
+        install_result = run_cmd(
+            install_cmd, timeout=300, cwd=repo_path, env=get_pipeline_env(repo_path),
         )
+        if install_result.returncode != 0:
+            print(f"  [prepare] Install warning (exit {install_result.returncode}): {install_result.stderr[-300:]}")
         if tracker:
             tracker.record_tool_call("run_install")
 

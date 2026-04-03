@@ -29,8 +29,11 @@ def route_after_analyze(state: PipelineState) -> str:
 
 def route_after_prepare(state: PipelineState) -> str:
     """After prepare, check if updates were actually applied."""
-    if state.get("final_status") in ("up_to_date", "error"):
+    if state.get("final_status") == "error":
         return "end"
+    if state.get("final_status") == "up_to_date":
+        # No updates to apply, but still run security audit
+        return "security_audit"
     return "build"
 
 
@@ -56,6 +59,35 @@ def route_after_test(state: PipelineState) -> str:
         return "rollback"
 
     return "create_issue"
+
+
+def route_after_security_audit(state: PipelineState) -> str:
+    """After security audit, decide next step."""
+    # If dependency updates were applied earlier, go to PR
+    applied = state.get("applied_updates")
+    if applied:
+        return "create_pr"
+
+    # If audit found fixable CVEs, apply security fixes
+    audit_results = state.get("audit_results") or []
+    for result in audit_results:
+        for finding in result.get("findings", []):
+            if finding.get("fix_versions"):
+                return "apply_security_fixes"
+
+    # No updates and no fixable CVEs — end
+    return "end"
+
+
+def route_after_security_fixes(state: PipelineState) -> str:
+    """After applying security fixes, decide next step based on what happened."""
+    # Real file changes → create PR
+    if state.get("security_fixes_applied"):
+        return "create_pr"
+    # Unfixable CVEs with no file changes → create/update tracking issue
+    if state.get("unfixable_cves"):
+        return "create_issue"
+    return "end"
 
 
 def route_after_rollback(state: PipelineState) -> str:

@@ -158,11 +158,14 @@ class CargoPlugin(EcosystemPlugin):
             for vuln in data.get("vulnerabilities", {}).get("list", []):
                 advisory = vuln.get("advisory", {})
                 pkg = vuln.get("package", {})
+                patched = vuln.get("versions", {}).get("patched", [])
                 findings.append({
                     "package": pkg.get("name", "unknown"),
+                    "current_version": pkg.get("version", ""),
                     "severity": advisory.get("cvss", "unknown"),
                     "vulnerability": advisory.get("id", "unknown"),
                     "detail": advisory.get("title", "")[:500],
+                    "fix_versions": patched,
                 })
             return findings
         except (_json.JSONDecodeError, AttributeError):

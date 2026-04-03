@@ -1,10 +1,15 @@
 """pip / poetry / pipenv ecosystem plugins."""
 
+import os
 import re
+import subprocess
 import sys
+import venv
+from pathlib import Path
 from typing import Optional
 
 from src.ecosystems import EcosystemPlugin, register, Dependency
+from src.utils.subprocess import run_cmd
 
 
 @register
@@ -200,15 +205,94 @@ class PipPlugin(EcosystemPlugin):
             updated_lines.append(line)
         return "\n".join(updated_lines)
 
-    def fix_command(self, command: str) -> str:
-        """Replace pip/pip3/pytest with python -m equivalents."""
+    # ── Environment setup (venv) ────────────────────────────
+
+    def setup_environment(self, repo_path: str) -> Optional[str]:
+        """
+        Create an isolated venv and install dependencies.
+
+        Returns the path to the venv's python executable.
+        """
+        venv_dir = os.path.join(repo_path, ".venv")
+        if os.path.exists(venv_dir):
+            # Venv already exists (from a previous run or the repo itself)
+            venv_python = self._get_venv_python(venv_dir)
+            if venv_python and os.path.exists(venv_python):
+                print(f"  [pip] Reusing existing venv at {venv_dir}")
+                return venv_python
+
+        print(f"  [pip] Creating venv at {venv_dir}...")
+        try:
+            venv.create(venv_dir, with_pip=True)
+        except Exception as e:
+            print(f"  [pip] Venv creation failed: {e}")
+            return None
+
+        venv_python = self._get_venv_python(venv_dir)
+        if not venv_python:
+            return None
+
+        # Install dependencies
+        repo_files = {p.name for p in Path(repo_path).iterdir() if p.is_file()}
+        dep_file = self.resolve_dependency_file(repo_files)
+
+        if dep_file:
+            if dep_file == "requirements.txt":
+                install_cmd = f"{venv_python} -m pip install -r requirements.txt --quiet"
+            elif dep_file == "pyproject.toml":
+                install_cmd = f"{venv_python} -m pip install -e . --quiet"
+            else:
+                install_cmd = f"{venv_python} -m pip install -r {dep_file} --quiet"
+
+            print(f"  [pip] Installing deps from {dep_file}...")
+            result = run_cmd(
+                install_cmd, timeout=300, cwd=repo_path,
+            )
+            if result.returncode != 0:
+                print(f"  [pip] Install warning: {result.stderr[-200:]}")
+
+        return venv_python
+
+    def teardown_environment(self, repo_path: str):
+        """Remove the venv created by setup_environment."""
+        import shutil
+        venv_dir = os.path.join(repo_path, ".venv")
+        if os.path.exists(venv_dir):
+            shutil.rmtree(venv_dir, ignore_errors=True)
+
+    def _get_venv_python(self, venv_dir: str) -> Optional[str]:
+        """Get the python executable path for a venv."""
+        if sys.platform == "win32":
+            python_path = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            python_path = os.path.join(venv_dir, "bin", "python")
+        return python_path if os.path.exists(python_path) else None
+
+    # ── Command fixing ───────────────────────────────────
+
+    def fix_command(self, command: str, repo_path: str = "") -> str:
+        """
+        Replace pip/pip3/pytest/pip-audit with python -m equivalents.
+
+        If repo_path has a .venv, use the venv's python. Otherwise use sys.executable.
+        """
+        python = sys.executable
+
+        # Use venv python if available
+        if repo_path:
+            venv_python = self._get_venv_python(os.path.join(repo_path, ".venv"))
+            if venv_python and os.path.exists(venv_python):
+                python = venv_python
+
         parts = command.split()
         if not parts:
             return command
         if parts[0] in ("pip", "pip3"):
-            return f"{sys.executable} -m pip " + " ".join(parts[1:])
+            return f"{python} -m pip " + " ".join(parts[1:])
+        if parts[0] == "pip-audit":
+            return f"{python} -m pip_audit " + " ".join(parts[1:])
         if parts[0] == "pytest":
-            return f"{sys.executable} -m pytest " + " ".join(parts[1:])
+            return f"{python} -m pytest " + " ".join(parts[1:])
         return command
 
     def default_commands(self) -> dict:
@@ -263,9 +347,11 @@ class PipPlugin(EcosystemPlugin):
                     for vuln in entry["vulns"]:
                         findings.append({
                             "package": entry.get("name", "unknown"),
+                            "current_version": entry.get("version", ""),
                             "severity": vuln.get("aliases", ["unknown"])[0] if vuln.get("aliases") else "unknown",
                             "vulnerability": vuln.get("id", "unknown"),
                             "detail": vuln.get("description", "")[:500],
+                            "fix_versions": vuln.get("fix_versions", []),
                         })
             return findings
         except (_json.JSONDecodeError, TypeError):
