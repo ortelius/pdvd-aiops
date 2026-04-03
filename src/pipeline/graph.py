@@ -25,10 +25,12 @@ from src.pipeline.nodes.build_test import build_node, test_node
 from src.pipeline.nodes.create_issue import create_issue_node
 from src.pipeline.nodes.create_pr import create_pr_node
 from src.pipeline.nodes.detect_commands import detect_commands_node
+from src.pipeline.nodes.detect_integrations import detect_integrations_node
 from src.pipeline.nodes.orchestrator import orchestrator_node
 from src.pipeline.nodes.prepare import prepare_node
 from src.pipeline.nodes.rollback import rollback_node
-from src.pipeline.nodes.verify import verify_node
+from src.pipeline.nodes.run_integrations import run_integrations_node
+from src.pipeline.nodes.security_audit import security_audit_node
 from src.pipeline.state import PipelineState
 
 
@@ -37,11 +39,11 @@ def build_graph() -> StateGraph:
     Build and compile the LangGraph pipeline.
 
     Graph topology:
-        orchestrator → analyze → detect_commands → prepare → build → test
-                                                                      ↓
-        end ← create_pr ← verify ← (test pass)          (test fail) → rollback → build (retry)
-                                                                      ↓ (max retries)
-        end ← create_issue ← (build fail or max retries)
+        orchestrator → analyze → detect_commands → detect_integrations → prepare → build → test
+                                                                                                    ↓
+        end ← create_pr ← security_audit ← run_integrations ← (test pass)
+                                                                (test fail) → rollback → build
+                                                                (max retries) → create_issue → end
     """
     graph = StateGraph(PipelineState)
 
@@ -49,11 +51,13 @@ def build_graph() -> StateGraph:
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("analyze", analyze_node)
     graph.add_node("detect_commands", detect_commands_node)
+    graph.add_node("detect_integrations", detect_integrations_node)
     graph.add_node("prepare", prepare_node)
     graph.add_node("build", build_node)
     graph.add_node("test", test_node)
     graph.add_node("rollback", rollback_node)
-    graph.add_node("verify", verify_node)
+    graph.add_node("run_integrations", run_integrations_node)
+    graph.add_node("security_audit", security_audit_node)
     graph.add_node("create_pr", create_pr_node)
     graph.add_node("create_issue", create_issue_node)
 
@@ -76,8 +80,9 @@ def build_graph() -> StateGraph:
         {"detect_commands": "detect_commands", "end": END},
     )
 
-    # detect_commands → prepare (linear)
-    graph.add_edge("detect_commands", "prepare")
+    # detect_commands → detect_integrations → prepare (linear)
+    graph.add_edge("detect_commands", "detect_integrations")
+    graph.add_edge("detect_integrations", "prepare")
 
     # After prepare: build (if changes applied) or end (up_to_date/error)
     graph.add_conditional_edges(
@@ -93,11 +98,11 @@ def build_graph() -> StateGraph:
         {"test": "test", "create_issue": "create_issue"},
     )
 
-    # After test: verify (pass), rollback (fail, retries left), create_issue (max retries)
+    # After test: run_integrations (pass), rollback (fail, retries left), create_issue (max retries)
     graph.add_conditional_edges(
         "test",
         route_after_test,
-        {"verify": "verify", "rollback": "rollback", "create_issue": "create_issue"},
+        {"run_integrations": "run_integrations", "rollback": "rollback", "create_issue": "create_issue"},
     )
 
     # After rollback: retry build or give up
@@ -107,8 +112,9 @@ def build_graph() -> StateGraph:
         {"build": "build", "create_issue": "create_issue"},
     )
 
-    # verify → create_pr → END
-    graph.add_edge("verify", "create_pr")
+    # run_integrations → security_audit → create_pr → END
+    graph.add_edge("run_integrations", "security_audit")
+    graph.add_edge("security_audit", "create_pr")
     graph.add_edge("create_pr", END)
 
     # create_issue → END

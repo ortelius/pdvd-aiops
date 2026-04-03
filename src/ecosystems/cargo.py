@@ -125,6 +125,10 @@ class CargoPlugin(EcosystemPlugin):
                 })
         return results
 
+    def release_url(self, package_name: str, version: str) -> str:
+        ver = version.lstrip("^~>=v")
+        return f"https://crates.io/crates/{package_name}/{ver}"
+
     def ci_build_patterns(self) -> list[str]:
         return [r'cargo build']
 
@@ -133,3 +137,33 @@ class CargoPlugin(EcosystemPlugin):
 
     def ci_install_patterns(self) -> list[str]:
         return [r'cargo fetch']
+
+    def audit_command(self) -> str:
+        return "cargo audit --json"
+
+    def audit_install_command(self) -> str:
+        return "cargo install cargo-audit"
+
+    def audit_uninstall_command(self) -> str:
+        return "cargo uninstall cargo-audit"
+
+    def audit_output_format(self) -> str:
+        return "json"
+
+    def parse_audit_output(self, stdout: str, stderr: str) -> list[dict]:
+        import json as _json
+        try:
+            data = _json.loads(stdout)
+            findings = []
+            for vuln in data.get("vulnerabilities", {}).get("list", []):
+                advisory = vuln.get("advisory", {})
+                pkg = vuln.get("package", {})
+                findings.append({
+                    "package": pkg.get("name", "unknown"),
+                    "severity": advisory.get("cvss", "unknown"),
+                    "vulnerability": advisory.get("id", "unknown"),
+                    "detail": advisory.get("title", "")[:500],
+                })
+            return findings
+        except (_json.JSONDecodeError, AttributeError):
+            return super().parse_audit_output(stdout, stderr)

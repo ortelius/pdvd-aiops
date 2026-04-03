@@ -182,6 +182,50 @@ class EcosystemPlugin(ABC):
         """
         return []
 
+    # ── Release URL ────────────────────────────────────────
+
+    def release_url(self, package_name: str, version: str) -> Optional[str]:
+        """
+        Return a URL to the release/package page for a specific version.
+        Override in subclasses for ecosystem-specific URL patterns.
+        Returns None if no URL pattern is known.
+        """
+        return None
+
+    # ── Security audit ────────────────────────────────────
+
+    def audit_command(self) -> Optional[str]:
+        """Return the ecosystem-specific security audit command, or None."""
+        return None
+
+    def audit_install_command(self) -> Optional[str]:
+        """Return command to install the audit tool if not present, or None."""
+        return None
+
+    def audit_uninstall_command(self) -> Optional[str]:
+        """Return command to clean up the audit tool after running, or None."""
+        return None
+
+    def audit_output_format(self) -> str:
+        """Return format of audit command output: 'text' | 'json'"""
+        return "text"
+
+    def parse_audit_output(self, stdout: str, stderr: str) -> list[dict]:
+        """
+        Parse audit command output into structured findings.
+
+        Returns list of:
+            {"package": str, "severity": str, "vulnerability": str, "detail": str}
+
+        Override in subclasses for ecosystem-specific parsing.
+        Default: treats non-empty output as a single raw finding.
+        """
+        output = (stdout or stderr or "").strip()
+        if output:
+            return [{"package": "unknown", "severity": "unknown",
+                     "vulnerability": "audit_finding", "detail": output[:2000]}]
+        return []
+
 
 # ── Plugin Registry ──────────────────────────────────────────
 
