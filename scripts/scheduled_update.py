@@ -21,8 +21,24 @@ SERVER_STARTUP_TIMEOUT = 120  # seconds
 JOB_TIMEOUT = 600  # 10 minutes per repo
 
 
+def _get_authenticated_owner() -> str:
+    """Get the username/org of the authenticated GitHub token."""
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+    resp = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()["login"]
+
+
 def list_repos_with_prefix(prefix: str) -> list[str]:
-    """Fetch all repos for the authenticated user matching the given prefix."""
+    """
+    Fetch repos for the authenticated user matching the given prefix.
+
+    Only returns repos owned by the authenticated user — excludes forks,
+    collaborator repos, and repos from other owners/orgs.
+    """
+    owner = _get_authenticated_owner()
+    print(f"Authenticated as: {owner}")
+
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
     repos = []
     page = 1
@@ -38,8 +54,14 @@ def list_repos_with_prefix(prefix: str) -> list[str]:
         if not batch:
             break
         for repo in batch:
-            if repo["name"].startswith(prefix):
+            repo_owner = repo.get("owner", {}).get("login", "")
+            is_fork = repo.get("fork", False)
+
+            # Only include repos owned by the authenticated user, not forks
+            if repo_owner == owner and not is_fork and repo["name"].startswith(prefix):
                 repos.append(repo["full_name"])
+            elif repo["name"].startswith(prefix):
+                print(f"  Skipping {repo['full_name']} (owner={repo_owner}, fork={is_fork})")
         page += 1
 
     return repos
