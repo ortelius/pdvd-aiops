@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from src.agents.orchestrator import create_main_orchestrator, validate_prerequisites
+from src.agents.orchestrator import validate_prerequisites
+from src.pipeline.graph import run_pipeline
 from src.utils.docker import get_docker_path
 
 # Load environment variables
@@ -198,73 +199,38 @@ async def process_repository_update(
         if github_token:
             os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
 
-        # Create orchestrator agent
-        print(f"[Job {job_id}] Creating orchestrator agent...")
-        agent = create_main_orchestrator()
-
-        # Run the update process with activity logging
-        from src.callbacks.agent_activity import AgentActivityHandler
-
-        handler = AgentActivityHandler("orchestrator", job_id=job_id)
-
-        # Set module-level handler so child agents register for cost aggregation
-        import src.agents.orchestrator as orch_module
-
-        orch_module._current_orchestrator_handler = handler
-
         print(f"[Job {job_id}] Processing repository: {repository}")
 
-        # Run agent.invoke() in a thread so it doesn't block the event loop.
+        # Run the LangGraph pipeline in a thread so it doesn't block the event loop.
         # This is critical: MCP tool calls use run_coroutine_threadsafe() to
-        # schedule async MCP operations back on this event loop. If the loop
-        # is blocked by agent.invoke(), it deadlocks.
+        # schedule async MCP operations back on this event loop.
         import asyncio
 
-        from src.agents.updater import set_main_event_loop
-
         loop = asyncio.get_running_loop()
-        set_main_event_loop(loop)
         result = await loop.run_in_executor(
             None,
-            lambda: agent.invoke(
-                {
-                    "messages": [
-                        (
-                            "user",
-                            f"Analyze and update dependencies for repository: {repository}",
-                        )
-                    ]
-                },
-                config={"callbacks": [handler]},
+            lambda: run_pipeline(
+                repo_url=repository,
+                job_id=job_id,
+                event_loop=loop,
             ),
         )
 
         # Update job with results
-        usage_summary = handler.get_usage_summary()
-        final_message = result["messages"][-1].content if result.get("messages") else ""
-
-        # Try to parse structured JSON from orchestrator's final message
-        parsed_result = {"output": final_message, "repository": repository}
-        try:
-            result_json = json.loads(final_message)
-            parsed_result["status"] = result_json.get("status", "unknown")
-            if "url" in result_json:
-                parsed_result["url"] = result_json["url"]
-            if "message" in result_json:
-                parsed_result["message"] = result_json["message"]
-            if "details" in result_json:
-                parsed_result["details"] = result_json["details"]
-        except (json.JSONDecodeError, TypeError):
-            parsed_result["status"] = "completed"
-
         jobs_storage[job_id]["status"] = "completed"
-        jobs_storage[job_id]["result"] = parsed_result
-        jobs_storage[job_id]["activity_log"] = handler.activity_log
-        jobs_storage[job_id]["usage"] = usage_summary
+        jobs_storage[job_id]["result"] = {
+            "status": result.get("status", "unknown"),
+            "url": result.get("url", ""),
+            "message": result.get("message", ""),
+            "repository": repository,
+        }
+        jobs_storage[job_id]["activity_log"] = result.get("activity_log", [])
+        jobs_storage[job_id]["usage"] = result.get("usage", {})
 
+        usage = result.get("usage", {})
         print(
-            f"[Job {job_id}] Completed — Cost: ${usage_summary['estimated_cost_usd']:.4f} "
-            f"({usage_summary['total_tokens']:,} tokens, {usage_summary['llm_calls']} LLM calls)"
+            f"[Job {job_id}] Completed — Cost: ${usage.get('estimated_cost_usd', 0):.4f} "
+            f"({usage.get('total_tokens', 0):,} tokens, {usage.get('llm_calls', 0)} LLM calls)"
         )
 
     except Exception as e:

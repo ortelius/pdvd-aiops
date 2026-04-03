@@ -1,0 +1,286 @@
+<mxfile host="app.diagrams.net" modified="2026-04-03T00:00:00.000Z" agent="Claude" version="24.0.0" type="device">
+  <diagram id="arch" name="Architecture">
+    <mxGraphModel dx="1900" dy="1400" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1800" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- ============================================================ -->
+        <!-- TITLE -->
+        <!-- ============================================================ -->
+        <mxCell id="title" value="&lt;b&gt;PDVD-AIOPS — Automated Dependency Update System (v2)&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="350" y="-30" width="600" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- ENTRY POINTS -->
+        <!-- ============================================================ -->
+        <mxCell id="entry_group" value="Entry Points" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;dashed=1;verticalAlign=top;fontStyle=1;fontSize=13;arcSize=8;" vertex="1" parent="1">
+          <mxGeometry x="120" y="30" width="1080" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli" value="&lt;b&gt;dep-updater&lt;/b&gt;&lt;br&gt;CLI one-shot" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="160" y="60" width="140" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="api" value="&lt;b&gt;dep-server&lt;/b&gt;&lt;br&gt;FastAPI REST" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="60" width="140" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="diag" value="&lt;b&gt;dep-diagnose&lt;/b&gt;&lt;br&gt;MCP diagnostics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="60" width="140" height="45" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrows from entry to pipeline -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="cli" target="pipeline_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="api" target="pipeline_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- LANGGRAPH PIPELINE -->
+        <!-- ============================================================ -->
+        <mxCell id="pipeline_group" value="LangGraph Pipeline (StateGraph)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;dashed=1;verticalAlign=top;fontStyle=1;fontSize=13;arcSize=5;" vertex="1" parent="1">
+          <mxGeometry x="40" y="170" width="1540" height="560" as="geometry"/>
+        </mxCell>
+
+        <!-- ── Row 1: orchestrator → analyze → detect_commands → detect_integrations → prepare ── -->
+        <mxCell id="orchestrator" value="&lt;b&gt;orchestrator&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;route task&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="220" width="110" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="analyze" value="&lt;b&gt;analyze&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;clone · detect eco&lt;br&gt;check outdated&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="210" y="210" width="135" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="detect_cmd" value="&lt;b&gt;detect_commands&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;CI parse → pkg.json&lt;br&gt;→ Haiku LLM → defaults&lt;br&gt;0–100 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="385" y="210" width="155" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="detect_integ" value="&lt;b&gt;detect_integrations&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;scan config files&lt;br&gt;registry-driven&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="210" width="155" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="prepare" value="&lt;b&gt;prepare&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;file edit or cmd&lt;br&gt;(plugin-driven)&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="775" y="210" width="135" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Row 1 arrows -->
+        <mxCell id="a1" style="rounded=1;" edge="1" source="orchestrator" target="analyze" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" style="rounded=1;" edge="1" source="analyze" target="detect_cmd" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" style="rounded=1;" edge="1" source="detect_cmd" target="detect_integ" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3b" style="rounded=1;" edge="1" source="detect_integ" target="prepare" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- up_to_date exit from analyze -->
+        <mxCell id="end_uptodate" value="&lt;b&gt;END&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;up_to_date&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="245" y="320" width="75" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_end" value="0 outdated" style="rounded=1;fontSize=9;fontColor=#999999;" edge="1" source="analyze" target="end_uptodate" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ── Row 2: build → test ── -->
+        <mxCell id="build" value="&lt;b&gt;build&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;run build cmd&lt;br&gt;fix_command()&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="775" y="400" width="135" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="test" value="&lt;b&gt;test&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;run test cmd&lt;br&gt;detect no-tests&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="400" width="135" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- prepare → build → test -->
+        <mxCell id="a4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="prepare" target="build" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a5" style="rounded=1;" edge="1" source="build" target="test" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ── Row 3: run_integrations → security_audit → create_pr ── -->
+        <mxCell id="run_integ" value="&lt;b&gt;run_integrations&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;linters · formatters&lt;br&gt;renovate · pre-commit&lt;br&gt;auto-install/uninstall&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="530" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="sec_audit" value="&lt;b&gt;security_audit&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;ecosystem audit&lt;br&gt;(npm audit, govulncheck...)&lt;br&gt;+ universal scanners&lt;br&gt;auto-install/uninstall&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="530" width="170" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="create_pr" value="&lt;b&gt;create_pr&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;branch · push&lt;br&gt;MCP PR&lt;br&gt;recommendations&lt;br&gt;release URLs&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1390" y="530" width="140" height="90" as="geometry"/>
+        </mxCell>
+
+        <!-- test PASS → run_integrations → security_audit → create_pr -->
+        <mxCell id="a6" value="PASS" style="rounded=1;fontStyle=1;fontSize=9;fontColor=#82b366;" edge="1" source="test" target="run_integ" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a6b" style="rounded=1;" edge="1" source="run_integ" target="sec_audit" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="a7" style="rounded=1;" edge="1" source="sec_audit" target="create_pr" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- PR end -->
+        <mxCell id="end_pr" value="&lt;b&gt;END&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;pr_url&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1425" y="430" width="70" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_pr_end" style="rounded=1;" edge="1" source="create_pr" target="end_pr" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Rollback node -->
+        <mxCell id="rollback" value="&lt;b&gt;rollback&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;heuristic → Haiku&lt;br&gt;identify pkg&lt;br&gt;0–50 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="400" width="140" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- test FAIL → rollback -->
+        <mxCell id="a8" value="FAIL &amp; retry&lt;3" style="rounded=1;fontStyle=1;fontSize=9;fontColor=#b85450;" edge="1" source="test" target="rollback" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- rollback → build (retry loop) -->
+        <mxCell id="a9" value="retry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=9;fontColor=#666666;" edge="1" source="rollback" target="build" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Create issue -->
+        <mxCell id="create_issue" value="&lt;b&gt;create_issue&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;logs · rollback hx&lt;br&gt;MCP issue&lt;br&gt;0 tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="200" y="530" width="140" height="70" as="geometry"/>
+        </mxCell>
+        <!-- rollback max retries → create_issue -->
+        <mxCell id="a10" value="retry≥3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=9;fontColor=#b85450;" edge="1" source="rollback" target="create_issue" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <!-- build FAIL → create_issue -->
+        <mxCell id="a11" value="build FAIL" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=9;fontColor=#b85450;" edge="1" source="build" target="create_issue" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Issue end -->
+        <mxCell id="end_issue" value="&lt;b&gt;END&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;issue_url&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="545" width="70" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="a_iss_end" style="rounded=1;" edge="1" source="create_issue" target="end_issue" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- PIPELINE STATE -->
+        <!-- ============================================================ -->
+        <mxCell id="state" value="&lt;b&gt;PipelineState&lt;/b&gt; (TypedDict)&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;repo_url · repo_path · language · package_manager · outdated_packages · build_commands&lt;br&gt;detected_integrations · integration_results · audit_results · applied_updates&lt;br&gt;build_result · test_result · retry_count · rollback_history · pr_url · issue_url · cost_tracker&lt;/font&gt;" style="shape=note;whiteSpace=wrap;html=1;size=14;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="420" y="310" width="500" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- BOTTOM ROW: Plugins, Integration Registry, Integrations, Services, Config -->
+        <!-- ============================================================ -->
+
+        <!-- Ecosystem Plugins -->
+        <mxCell id="plugins_group" value="Ecosystem Plugins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;dashed=1;verticalAlign=top;fontStyle=1;fontSize=12;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="780" width="310" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="plugin_base" value="&lt;b&gt;EcosystemPlugin&lt;/b&gt; (ABC)&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;detect() · apply_updates() · rollback_package()&lt;br&gt;outdated_cmd() · fix_command() · ci_patterns()&lt;br&gt;audit_command() · audit_install_command()&lt;br&gt;release_url() · default_commands()&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="55" y="810" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="plugin_list" value="&lt;font style=&quot;font-size:9px&quot;&gt;&lt;b&gt;npm&lt;/b&gt; · &lt;b&gt;yarn&lt;/b&gt; · &lt;b&gt;pnpm&lt;/b&gt; (nodejs)&lt;br&gt;&lt;b&gt;pip&lt;/b&gt; · &lt;b&gt;poetry&lt;/b&gt; · &lt;b&gt;pipenv&lt;/b&gt; (python)&lt;br&gt;&lt;b&gt;cargo&lt;/b&gt; (rust) · &lt;b&gt;go-mod&lt;/b&gt; (go)&lt;br&gt;&lt;b&gt;bundler&lt;/b&gt; (ruby) · &lt;b&gt;composer&lt;/b&gt; (php)&lt;br&gt;&lt;b&gt;maven&lt;/b&gt; · &lt;b&gt;gradle&lt;/b&gt; (java) · &lt;b&gt;nuget&lt;/b&gt; (.net)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="55" y="900" width="280" height="85" as="geometry"/>
+        </mxCell>
+
+        <!-- Integration Registry (NEW) -->
+        <mxCell id="integ_registry_group" value="Integration Registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;verticalAlign=top;fontStyle=1;fontSize=12;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="390" y="780" width="310" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="integ_reg_base" value="&lt;b&gt;IntegrationDef&lt;/b&gt; + @register_integration&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;detect by config_files · run_command&lt;br&gt;install_command · uninstall_command&lt;br&gt;parse_output · auto-install on the fly&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="405" y="810" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="integ_reg_defs" value="&lt;font style=&quot;font-size:9px&quot;&gt;&lt;b&gt;Linters:&lt;/b&gt; eslint · ruff · golangci-lint · clippy · rubocop&lt;br&gt;&lt;b&gt;Formatters:&lt;/b&gt; prettier · black · gofmt&lt;br&gt;&lt;b&gt;Security:&lt;/b&gt; trivy · osv-scanner · semgrep · bandit · hadolint&lt;br&gt;&lt;b&gt;Dep Mgrs:&lt;/b&gt; renovate · pre-commit · commitlint&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#82b366;fontSize=10;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="405" y="895" width="280" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- GitHub MCP -->
+        <mxCell id="integ_group" value="GitHub MCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;dashed=1;verticalAlign=top;fontStyle=1;fontSize=12;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="740" y="780" width="240" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="mcp_client" value="&lt;b&gt;GitHub MCP Client&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Docker / OrbStack / Podman&lt;br&gt;create_branch · push_files&lt;br&gt;create_pr · create_issue&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="755" y="810" width="210" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="mcp_mgr" value="&lt;b&gt;MCP Server Manager&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;persistent connection&lt;br&gt;async lifecycle&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="755" y="900" width="210" height="55" as="geometry"/>
+        </mxCell>
+
+        <!-- Services + Config -->
+        <mxCell id="svc_group" value="Services &amp; Config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;verticalAlign=top;fontStyle=1;fontSize=12;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="780" width="560" height="240" as="geometry"/>
+        </mxCell>
+        <mxCell id="cache" value="&lt;b&gt;RepositoryCache&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;24hr TTL · ~/.cache/&lt;br&gt;outdated results cache&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="810" width="200" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="cost" value="&lt;b&gt;CostTracker&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;per-phase metrics&lt;br&gt;token count · USD cost&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="880" width="200" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm_factory" value="&lt;b&gt;LLM Factory&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;Anthropic (default)&lt;br&gt;Gemini · OpenAI · Groq · Ollama&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="810" width="220" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="env" value="&lt;b&gt;Environment&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot;&gt;ANTHROPIC_API_KEY&lt;br&gt;GITHUB_PERSONAL_ACCESS_TOKEN&lt;br&gt;LLM_PROVIDER · LLM_MODEL_NAME&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="880" width="220" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- CONNECTING ARROWS (pipeline → bottom layer) -->
+        <!-- ============================================================ -->
+        <mxCell id="c1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#d6b656;" edge="1" source="analyze" target="plugins_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#d6b656;" edge="1" source="prepare" target="plugins_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#82b366;" edge="1" source="detect_integ" target="integ_registry_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#82b366;" edge="1" source="run_integ" target="integ_registry_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#82b366;" edge="1" source="create_pr" target="integ_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#82b366;" edge="1" source="create_issue" target="integ_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;strokeColor=#d6b656;" edge="1" source="sec_audit" target="plugins_group" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- LEGEND -->
+        <!-- ============================================================ -->
+        <mxCell id="legend_group" value="Legend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff;strokeColor=#999;dashed=1;verticalAlign=top;fontStyle=1;fontSize=11;arcSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1050" width="700" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg1" value="" style="rounded=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1068" width="18" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg1t" value="&lt;font style=&quot;font-size:9px&quot;&gt;Deterministic (0 tokens)&lt;/font&gt;" style="text;html=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="82" y="1065" width="120" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg2" value="" style="rounded=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="220" y="1068" width="18" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg2t" value="&lt;font style=&quot;font-size:9px&quot;&gt;LLM-powered (Haiku)&lt;/font&gt;" style="text;html=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="242" y="1065" width="120" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg3" value="" style="rounded=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="380" y="1068" width="18" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg3t" value="&lt;font style=&quot;font-size:9px&quot;&gt;Integration / GitHub / Output&lt;/font&gt;" style="text;html=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="402" y="1065" width="140" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg4" value="" style="rounded=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="560" y="1068" width="18" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="leg4t" value="&lt;font style=&quot;font-size:9px&quot;&gt;Error / Rollback&lt;/font&gt;" style="text;html=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="582" y="1065" width="80" height="20" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
