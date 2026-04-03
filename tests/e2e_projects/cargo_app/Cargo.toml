@@ -1,0 +1,11 @@
+[package]
+name = "e2e-cargo-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.180", features = ["derive"] }
+serde_json = "1.0.100"
+clap = { version = "4.3.0", features = ["derive"] }
+
+[dev-dependencies]

@@ -41,3 +41,4 @@ include = ["src*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--ignore=tests/e2e_projects"

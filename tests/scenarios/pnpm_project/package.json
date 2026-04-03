@@ -1,8 +1,0 @@
-{
-  "name": "test-pnpm-project",
-  "version": "1.0.0",
-  "dependencies": {
-    "fastify": "^4.20.0",
-    "zod": "^3.21.0"
-  }
-}
