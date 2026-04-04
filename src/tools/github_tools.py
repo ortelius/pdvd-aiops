@@ -1038,7 +1038,7 @@ def _generate_ai_summary(
     """
     Use a lightweight LLM call to generate a human-quality PR summary.
 
-    Cost: ~$0.002 (Haiku). Falls back gracefully if LLM is unavailable.
+    Cost: ~1 lightweight LLM call via configured LLM_PROVIDER. Falls back gracefully if unavailable.
     """
     try:
         from src.config.llm import get_llm

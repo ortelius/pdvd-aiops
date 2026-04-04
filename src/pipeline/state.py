@@ -28,7 +28,7 @@ class PipelineState(TypedDict, total=False):
 
     # ── Detect commands phase ────────────────────────────
     build_commands: Optional[dict]  # {install, build, test, lint, ...}
-    commands_source: Optional[str]  # "ci_config" | "haiku_llm" | "ecosystem_default"
+    commands_source: Optional[str]  # "ci_config" | "llm" | "ecosystem_default"
 
     # ── Prepare phase ────────────────────────────────────
     dependency_file_name: Optional[str]

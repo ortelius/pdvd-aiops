@@ -3,7 +3,7 @@ Rollback node — LLM-powered for error analysis, deterministic for execution.
 
 When tests fail, this node:
 1. Uses heuristics to identify the problematic package
-2. Falls back to LLM (Haiku) for ambiguous cases
+2. Falls back to LLM (configured LLM_PROVIDER) for ambiguous cases
 3. Rolls back the identified package via ecosystem plugin
 4. Increments retry counter
 """
@@ -164,7 +164,7 @@ def _heuristic_error_analysis(error_output: str, applied_updates: list[dict]) ->
 
 
 def _llm_error_analysis(error_output: str, applied_updates: list[dict], tracker=None) -> Optional[dict]:
-    """Use Haiku to identify problematic package when heuristics fail."""
+    """Use LLM to identify problematic package when heuristics fail."""
     try:
         from src.config.llm import get_llm
 
@@ -191,7 +191,7 @@ If you cannot determine, return: {{"package": null}}"""
             usage = getattr(response, "usage_metadata", None)
             if usage:
                 tracker.record_llm_call(
-                    "claude-haiku-4-5-20251001",
+                    getattr(llm, "model_name", "unknown"),
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
                 )
