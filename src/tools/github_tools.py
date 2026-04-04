@@ -1217,6 +1217,9 @@ def _categorize_update(update: dict) -> str:
     """Categorize as major/minor/patch."""
     old = update.get("old", "0.0.0").lstrip("^~>=v")
     new = update.get("new", "0.0.0").lstrip("^~>=v")
+    # If old version is missing/invalid, we can't categorize
+    if not old or old in ("N/A", "?", "0.0.0") or not old[0].isdigit():
+        return "unknown"
     try:
         old_parts = old.split(".")
         new_parts = new.split(".")

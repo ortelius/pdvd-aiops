@@ -43,9 +43,14 @@ class NpmPlugin(EcosystemPlugin):
                     elif old_version.startswith(">="):
                         prefix = ">="
                     data[section][pkg_name] = f"{prefix}{new_version}"
+                    # Prefer the actual version from package.json over the outdated
+                    # command's "current" field — npm reports "N/A" or empty when a
+                    # package isn't installed yet in node_modules
+                    reported_current = update.get("current", "")
+                    actual_old = old_version.lstrip("^~>=")
                     applied.append({
                         "name": pkg_name,
-                        "old": update.get("current", old_version),
+                        "old": actual_old if (not reported_current or reported_current == "N/A") else reported_current,
                         "new": new_version,
                         "section": section,
                     })
@@ -81,6 +86,13 @@ class NpmPlugin(EcosystemPlugin):
             "test": "npm test",
             "lint": "npm run lint",
         }
+
+    def setup_environment(self, repo_path: str):
+        """Run npm install so npm outdated has complete node_modules data."""
+        from src.utils.subprocess import run_cmd
+        print(f"  [npm] Running npm install before outdated check...")
+        run_cmd("npm install", timeout=300, cwd=repo_path)
+        return None
 
     def release_url(self, package_name: str, version: str) -> str:
         ver = version.lstrip("^~>=v")
@@ -133,6 +145,13 @@ class YarnPlugin(EcosystemPlugin):
 
     def detect(self, repo_files: set[str]) -> bool:
         return "yarn.lock" in repo_files
+
+    def setup_environment(self, repo_path: str):
+        """Run yarn install so yarn outdated has complete dependency data."""
+        from src.utils.subprocess import run_cmd
+        print(f"  [yarn] Running yarn install before outdated check...")
+        run_cmd("yarn install", timeout=300, cwd=repo_path)
+        return None
 
     def parse_dependencies(self, content: str) -> list[Dependency]:
         return NpmPlugin().parse_dependencies(content)
@@ -205,6 +224,13 @@ class PnpmPlugin(EcosystemPlugin):
 
     def detect(self, repo_files: set[str]) -> bool:
         return "pnpm-lock.yaml" in repo_files
+
+    def setup_environment(self, repo_path: str):
+        """Run pnpm install so pnpm outdated has complete dependency data."""
+        from src.utils.subprocess import run_cmd
+        print(f"  [pnpm] Running pnpm install before outdated check...")
+        run_cmd("pnpm install", timeout=300, cwd=repo_path)
+        return None
 
     def parse_dependencies(self, content: str) -> list[Dependency]:
         return NpmPlugin().parse_dependencies(content)
