@@ -14,7 +14,7 @@ A REST API service that automatically analyzes and updates repository dependenci
 
 1. **Docker**: Must be installed and running
 2. **GitHub Personal Access Token**: Required for GitHub operations
-3. **Anthropic API Key**: Required for Claude AI agent
+3. **LLM Provider API Key**: Required for AI features (Groq, Anthropic, OpenAI, Google, or Ollama)
 
 ## 🏗️ Setup
 
@@ -31,9 +31,10 @@ A REST API service that automatically analyzes and updates repository dependenci
    cp .env.example .env
    ```
 
-   Edit `.env` and add:
+   Edit `.env` and add your LLM provider key:
    ```
-   ANTHROPIC_API_KEY=your-anthropic-api-key-here
+   LLM_PROVIDER=groq
+   GROQ_API_KEY=your-groq-api-key-here
    ```
 
 3. **Set GitHub token** (in your shell):
@@ -58,7 +59,7 @@ A REST API service that automatically analyzes and updates repository dependenci
 2. **Set up environment variables**:
    ```bash
    cp .env.example .env
-   # Edit .env and add your ANTHROPIC_API_KEY
+   # Edit .env and add your LLM provider key (e.g. GROQ_API_KEY)
    export GITHUB_PERSONAL_ACCESS_TOKEN=your-github-token-here
    ```
 
@@ -129,7 +130,7 @@ GET /health
   "checks": {
     "docker": "available",
     "github_token": "configured",
-    "anthropic_api_key": "configured"
+    "llm_api_key": "configured"
   }
 }
 ```
@@ -274,7 +275,8 @@ GET /api/jobs
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key for Claude |
+| `LLM_PROVIDER` | No | LLM provider: anthropic, groq, openai, gemini, ollama (default: anthropic) |
+| `GROQ_API_KEY` | Yes* | API key for your chosen LLM provider (*or the matching key for your provider) |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Yes | GitHub token with repo permissions |
 | `PORT` | No | Server port (default: 8000) |
 | `HOST` | No | Server host (default: 0.0.0.0) |
@@ -377,8 +379,8 @@ docker-compose logs -f github-mcp
 - Set: `export GITHUB_PERSONAL_ACCESS_TOKEN=your-token`
 - Or include in request body
 
-### "Anthropic API key missing"
-- Add to `.env` file: `ANTHROPIC_API_KEY=your-key`
+### "LLM API key missing"
+- Add to `.env` file: `GROQ_API_KEY=your-key` (or the key matching your `LLM_PROVIDER`)
 
 ### Jobs stuck in "queued" status
 - Check server logs: `docker-compose logs -f api-server`

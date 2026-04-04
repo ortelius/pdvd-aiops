@@ -1,3 +1,1 @@
-from src.agents.analyzer import create_dependency_analyzer_agent
-from src.agents.orchestrator import create_main_orchestrator
-from src.agents.updater import create_smart_updater_agent
+from src.agents.orchestrator import main, validate_prerequisites

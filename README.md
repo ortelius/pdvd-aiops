@@ -96,6 +96,7 @@ Adding a new ecosystem = one file in `src/ecosystems/` with a `@register` decora
 - Python 3.9+
 - Docker (for GitHub MCP server)
 - GitHub Personal Access Token (`repo` + `workflow` scopes)
+- LLM provider API key (Groq, Anthropic, OpenAI, Google, or Ollama)
 
 ### Setup
 
@@ -108,18 +109,21 @@ pip install -e .
 Set environment variables (or create `.env`):
 
 ```bash
-export ANTHROPIC_API_KEY='sk-ant-...'
 export GITHUB_PERSONAL_ACCESS_TOKEN='ghp_...'
+
+# Pick your LLM provider (default: anthropic)
+export LLM_PROVIDER=groq                    # anthropic | gemini | openai | groq | ollama
+export GROQ_API_KEY='gsk_...'               # or ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY
 ```
 
 ### Run
 
 ```bash
 # CLI
-python -m src.agents.orchestrator https://github.com/owner/repo
+python -m src.cli.main https://github.com/owner/repo
 
 # Or shorthand
-python -m src.agents.orchestrator owner/repo
+python -m src.cli.main owner/repo
 ```
 
 ### API Server
@@ -147,6 +151,8 @@ src/
     mcp_server_manager.py  # Persistent GitHub MCP connection
   tools/
     github_tools.py    # PR/Issue creation, find-or-update logic
+  cli/
+    main.py            # CLI entry point (validate + run_pipeline)
   config/
     llm.py             # Multi-provider LLM factory
   callbacks/
@@ -157,7 +163,7 @@ src/
     env.py             # Unified subprocess environment
     subprocess.py      # Safe command execution (shell=False by default)
 tests/
-  test_unit.py         # 95 unit tests
+  test_unit.py         # 153 unit tests
   test_e2e_pipeline.py # End-to-end pipeline tests
 ```
 

@@ -6,7 +6,6 @@ as standalone functions (not @tool decorated) for direct use by pipeline nodes.
 The MCP integration is preserved.
 """
 
-import json
 import os
 import re
 import subprocess
@@ -124,7 +123,7 @@ def _run_mcp_call(coro_func, *args):
 
     # Priority 1: Use event loop set by FastAPI server
     try:
-        from src.agents.updater import _main_event_loop
+        from src.integrations.mcp_server_manager import _main_event_loop
         loop = _main_event_loop
     except (ImportError, AttributeError):
         loop = None

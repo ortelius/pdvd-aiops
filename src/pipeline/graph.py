@@ -5,7 +5,6 @@ Wires together all nodes (deterministic + LLM) with conditional edges
 to form the complete dependency update workflow.
 """
 
-import json
 import os
 import shutil
 import time
@@ -202,7 +201,7 @@ def run_pipeline(
     """
     # Set event loop for MCP calls if provided
     if event_loop:
-        from src.agents.updater import set_main_event_loop
+        from src.integrations.mcp_server_manager import set_main_event_loop
         set_main_event_loop(event_loop)
 
     # Normalize URL
