@@ -188,12 +188,13 @@ def validate_prerequisites() -> tuple[bool, str]:
             "Create a token at: https://github.com/settings/tokens (Required scopes: repo, workflow)"
         )
 
-    # Check for Anthropic API key
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if not anthropic_key:
+    # Check for LLM provider API key
+    from src.config.llm import get_required_api_key
+    key_name, key_value = get_required_api_key()
+    if key_name and not key_value:
         return False, (
-            "ANTHROPIC_API_KEY not set. "
-            "Please set your Anthropic API key: export ANTHROPIC_API_KEY='your_key_here'"
+            f"{key_name} not set. "
+            f"Please set your API key: export {key_name}='your_key_here'"
         )
 
     return True, "All prerequisites validated successfully"

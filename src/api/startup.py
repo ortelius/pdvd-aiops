@@ -82,14 +82,19 @@ def check_environment_variables():
 
     all_set = True
 
-    # Check ANTHROPIC_API_KEY
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        print(f"  ANTHROPIC_API_KEY: Set ({anthropic_key[:8]}...)")
+    # Check LLM provider API key
+    from src.config.llm import get_required_api_key
+    key_name, key_value = get_required_api_key()
+    if key_name:
+        if key_value:
+            print(f"  {key_name}: Set ({key_value[:8]}...)")
+        else:
+            print(f"  {key_name}: NOT SET")
+            print(f"    Set it in .env file or export {key_name}=your-key")
+            all_set = False
     else:
-        print("  ANTHROPIC_API_KEY: NOT SET")
-        print("    Set it in .env file or export ANTHROPIC_API_KEY=your-key")
-        all_set = False
+        provider = os.getenv("LLM_PROVIDER", "anthropic")
+        print(f"  LLM provider: {provider} (no API key required)")
 
     # Check GITHUB_PERSONAL_ACCESS_TOKEN
     github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
