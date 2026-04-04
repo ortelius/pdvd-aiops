@@ -59,6 +59,12 @@ class PipelineState(TypedDict, total=False):
     # ── Security audit ────────────────────────────────────
     audit_results: Optional[list[dict]]  # [{source, status, findings}]
 
+    # ── LLM Intelligence ─────────────────────────────────
+    changelog_risk_summary: Optional[str]  # breaking changes for major bumps
+    security_priority_summary: Optional[str]  # prioritized fix recommendations
+    failure_diagnosis: Optional[str]  # root cause of build/test failure
+    maintainer_summary: Optional[str]  # maintainer-focused PR review narrative
+
     # ── Verification ─────────────────────────────────────
     verification_results: Optional[list[dict]]  # [{check, status, detail}, ...]
 

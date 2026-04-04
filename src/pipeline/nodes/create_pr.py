@@ -87,6 +87,9 @@ def create_pr_node(state: PipelineState) -> dict:
             detected_integrations=state.get("detected_integrations"),
             security_fixes=security_fixes,
             unfixable_cves=unfixable_cves,
+            changelog_risk_summary=state.get("changelog_risk_summary"),
+            security_priority_summary=state.get("security_priority_summary"),
+            maintainer_summary=state.get("maintainer_summary"),
         )
 
         pr_result = create_github_pr(repo_name, branch_name, title, body)

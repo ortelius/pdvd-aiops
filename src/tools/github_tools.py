@@ -719,7 +719,10 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
                     detected_integrations: list[dict] = None,
                     verification_results: list[dict] = None,
                     security_fixes: list[dict] = None,
-                    unfixable_cves: list[dict] = None) -> tuple[str, str]:
+                    unfixable_cves: list[dict] = None,
+                    changelog_risk_summary: str = None,
+                    security_priority_summary: str = None,
+                    maintainer_summary: str = None) -> tuple[str, str]:
     """
     Build PR title and body from update data.
 
@@ -742,8 +745,8 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     from src.ecosystems import get_plugin_by_name
     plugin = get_plugin_by_name(package_manager)
 
-    # ── AI-generated summary (Haiku, ~$0.002) ────────────
-    ai_summary = _generate_ai_summary(
+    # ── Maintainer summary (from intelligence layer, or fallback to legacy) ──
+    summary_text = maintainer_summary or _generate_ai_summary(
         applied_updates, package_manager,
         has_tests=has_tests,
         integration_results=integration_results,
@@ -751,8 +754,8 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     )
 
     body = ""
-    if ai_summary:
-        body += f"## Summary\n\n{ai_summary}\n\n---\n\n"
+    if summary_text:
+        body += f"## Summary\n\n{summary_text}\n\n---\n\n"
 
     # Update table
     body += "## Updated Dependencies\n\n"
@@ -774,6 +777,12 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
         for u in applied_updates:
             release = _format_release_link(plugin, u["name"], u["new"])
             body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` | {release} |\n"
+
+    # Changelog risk assessment (from intelligence layer)
+    if changelog_risk_summary:
+        body += "\n\n## Breaking Change Risk Assessment\n\n"
+        body += changelog_risk_summary
+        body += "\n"
 
     # Security fixes section
     if security_fixes:
@@ -908,6 +917,11 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
         if not all_findings:
             body += ":shield: **No vulnerabilities found** — all security checks passed.\n\n"
         else:
+            # LLM-powered prioritization (from intelligence layer)
+            if security_priority_summary:
+                body += "### Prioritized Recommendations\n\n"
+                body += security_priority_summary
+                body += "\n\n"
             body += _build_security_recommendations(all_findings)
 
         # Scanner summary table

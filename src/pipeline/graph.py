@@ -16,6 +16,7 @@ from src.callbacks.cost_tracker import CostTracker
 from src.pipeline.edges import (
     route_after_analyze,
     route_after_build,
+    route_after_llm_analysis,
     route_after_orchestrator,
     route_after_prepare,
     route_after_rollback,
@@ -33,6 +34,7 @@ from src.pipeline.nodes.orchestrator import orchestrator_node
 from src.pipeline.nodes.prepare import prepare_node
 from src.pipeline.nodes.rollback import rollback_node
 from src.pipeline.nodes.apply_security_fixes import apply_security_fixes_node
+from src.pipeline.nodes.llm_analysis import llm_analysis_node
 from src.pipeline.nodes.run_integrations import run_integrations_node
 from src.pipeline.nodes.security_audit import security_audit_node
 from src.pipeline.state import PipelineState
@@ -45,9 +47,10 @@ def build_graph() -> StateGraph:
     Graph topology:
         orchestrator → analyze → detect_commands → detect_integrations → prepare → build → test
                                                                                                     ↓
-        end ← create_pr ← security_audit ← run_integrations ← (test pass)
+        end ← create_pr ← llm_analysis ← security_audit ← run_integrations ← (test pass)
                                                                 (test fail) → rollback → build
-                                                                (max retries) → create_issue → end
+                                                                (max retries) → llm_analysis → create_issue → end
+                                                 (build fail) → llm_analysis → create_issue → end
     """
     graph = StateGraph(PipelineState)
 
@@ -63,6 +66,7 @@ def build_graph() -> StateGraph:
     graph.add_node("run_integrations", run_integrations_node)
     graph.add_node("security_audit", security_audit_node)
     graph.add_node("apply_security_fixes", apply_security_fixes_node)
+    graph.add_node("llm_analysis", llm_analysis_node)
     graph.add_node("create_pr", create_pr_node)
     graph.add_node("create_issue", create_issue_node)
 
@@ -96,18 +100,18 @@ def build_graph() -> StateGraph:
         {"build": "build", "security_audit": "security_audit", "end": END},
     )
 
-    # After build: test or create_issue (build failure)
+    # After build: test or llm_analysis (build failure → diagnosis → create_issue)
     graph.add_conditional_edges(
         "build",
         route_after_build,
-        {"test": "test", "create_issue": "create_issue"},
+        {"test": "test", "llm_analysis": "llm_analysis"},
     )
 
-    # After test: run_integrations (pass), rollback (fail, retries left), create_issue (max retries)
+    # After test: run_integrations (pass), rollback (fail, retries left), llm_analysis (max retries — for failure diagnosis)
     graph.add_conditional_edges(
         "test",
         route_after_test,
-        {"run_integrations": "run_integrations", "rollback": "rollback", "create_issue": "create_issue"},
+        {"run_integrations": "run_integrations", "rollback": "rollback", "llm_analysis": "llm_analysis"},
     )
 
     # After rollback: retry build or give up
@@ -120,18 +124,25 @@ def build_graph() -> StateGraph:
     # run_integrations → security_audit
     graph.add_edge("run_integrations", "security_audit")
 
-    # After security_audit: create_pr, apply_security_fixes, or end
+    # After security_audit: llm_analysis (has updates), apply_security_fixes, or end
     graph.add_conditional_edges(
         "security_audit",
         route_after_security_audit,
-        {"create_pr": "create_pr", "apply_security_fixes": "apply_security_fixes", "end": END},
+        {"llm_analysis": "llm_analysis", "apply_security_fixes": "apply_security_fixes", "end": END},
     )
 
-    # After apply_security_fixes: create_pr, create_issue (unfixable CVEs), or end
+    # After apply_security_fixes: llm_analysis (has fixes), create_issue (unfixable CVEs), or end
     graph.add_conditional_edges(
         "apply_security_fixes",
         route_after_security_fixes,
-        {"create_pr": "create_pr", "create_issue": "create_issue", "end": END},
+        {"llm_analysis": "llm_analysis", "create_issue": "create_issue", "end": END},
+    )
+
+    # After llm_analysis: create_pr or create_issue (failure path)
+    graph.add_conditional_edges(
+        "llm_analysis",
+        route_after_llm_analysis,
+        {"create_pr": "create_pr", "create_issue": "create_issue"},
     )
 
     graph.add_edge("create_pr", END)
@@ -321,4 +332,69 @@ def run_pipeline(
         "audit_results": audit_results,
         "activity_log": tracker.activity_log,
         "elapsed_seconds": elapsed,
+    }
+
+
+def run_pipeline_batch(
+    repo_urls: list[str],
+    job_id: Optional[str] = None,
+) -> dict:
+    """
+    Run the pipeline across multiple repos, then synthesize cross-repo intelligence.
+
+    Args:
+        repo_urls: List of repository URLs or owner/repo strings
+        job_id: Optional batch job ID
+
+    Returns:
+        dict with: results (per-repo), multi_repo_summary, total_usage
+    """
+    from src.intelligence.multi_repo import synthesize_multi_repo
+
+    batch_tracker = CostTracker(job_id=job_id)
+    results = []
+
+    for url in repo_urls:
+        print(f"\n{'─' * 60}")
+        print(f"  Processing: {url}")
+        print(f"{'─' * 60}")
+        try:
+            result = run_pipeline(url, job_id=job_id)
+            results.append(result)
+        except Exception as e:
+            results.append({
+                "repository": url,
+                "status": "error",
+                "message": str(e),
+                "audit_results": [],
+            })
+
+    # Cross-repo intelligence synthesis
+    summary = synthesize_multi_repo(results, tracker=batch_tracker)
+    batch_usage = batch_tracker.get_summary()
+
+    # Aggregate usage across all runs
+    total_tokens = batch_usage["total_tokens"] + sum(
+        r.get("usage", {}).get("total_tokens", 0) for r in results
+    )
+    total_cost = batch_usage["estimated_cost_usd"] + sum(
+        r.get("usage", {}).get("estimated_cost_usd", 0) for r in results
+    )
+
+    print(f"\n{'=' * 60}")
+    print(f"  BATCH RESULT ({len(results)} repos)")
+    print(f"{'=' * 60}")
+    print(f"\n{summary}\n")
+    print(f"  Total tokens: {total_tokens:,}")
+    print(f"  Total cost:   ${total_cost:.4f}")
+    print(f"{'=' * 60}\n")
+
+    return {
+        "results": results,
+        "multi_repo_summary": summary,
+        "total_usage": {
+            "total_tokens": total_tokens,
+            "estimated_cost_usd": round(total_cost, 6),
+            "repos_processed": len(results),
+        },
     }
