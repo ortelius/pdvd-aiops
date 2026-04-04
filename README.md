@@ -494,6 +494,33 @@ Everything else — ecosystem detection, outdated checks, builds, tests, securit
 
 ---
 
+## How It Compares
+
+|  | **pdvd-aiops** | **Renovate / Dependabot** |
+|--|:---:|:---:|
+| **Update dependencies** | All in one tested PR | One PR per update (no testing) |
+| **Build & test before PR** | Runs actual build + test suite | No |
+| **Auto-rollback on failure** | Binary-search rollback, retries 3x | No |
+| **Failure root-cause diagnosis** | LLM pinpoints exact package + fix | No |
+| **Security audit** | 7 scanners (pip-audit, npm audit, govulncheck, Trivy, OSV-scanner, Semgrep, Bandit) | GitHub Advisory DB / limited alerts |
+| **CVE auto-patching** | Auto-patches fixable CVEs into the PR | Security updates only |
+| **Unfixable CVE tracking** | Persistent GitHub Issue, updated each scan | No |
+| **Reachability analysis** | Greps source, LLM triages called vs not-called | No |
+| **Changelog risk assessment** | Fetches real changelogs, LLM writes migration guide | Links to release notes |
+| **Source code impact analysis** | Greps imports, predicts which lines break | No |
+| **Config drift detection** | Flags stale tsconfig, eslintrc after major bumps | No |
+| **Smart update grouping** | Auto-groups coupled packages (react + react-dom) | Manual config / limited |
+| **Multi-repo intelligence** | Cross-repo CVE synthesis, prioritized update order | Dashboard (Renovate paid) / No |
+| **Maintainer PR summary** | LLM-written decision-ready narrative | Changelog excerpts |
+| **Linter/formatter integration** | Auto-detects and runs ESLint, Ruff, Prettier, etc. | No |
+| **Ecosystems** | 8 (pip, npm, yarn, pnpm, cargo, go, poetry, pipenv) | 90+ / ~15 |
+| **Self-hosted** | Yes (your infra, your LLM) | Yes / GitHub only |
+| **Cost** | ~$0.005/run | Free / paid tiers |
+
+**In short:** Renovate and Dependabot tell you *what* is outdated. pdvd-aiops updates it, tests it, rolls back what breaks, audits for CVEs, diagnoses failures, and explains everything in plain English.
+
+---
+
 ## License
 
-MIT
+Apache License 2.0 - See LICENSE file for details.
