@@ -16,7 +16,7 @@ import requests
 API_BASE = "http://127.0.0.1:8000"
 REPO_PREFIX = os.getenv("REPO_PREFIX", "pdvd")
 REPO_OWNERS = [o.strip() for o in os.getenv("REPO_OWNERS", "").split(",") if o.strip()]
-GITHUB_TOKEN = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 POLL_INTERVAL = 30  # seconds
 SERVER_STARTUP_TIMEOUT = 120  # seconds
 JOB_TIMEOUT = 600  # 10 minutes per repo
@@ -121,7 +121,7 @@ def wait_for_job(job_id: str, repo: str) -> dict:
 
 def main():
     if not GITHUB_TOKEN:
-        print("ERROR: GITHUB_PERSONAL_ACCESS_TOKEN is not set.", file=sys.stderr)
+        print("ERROR: GITHUB_TOKEN is not set.", file=sys.stderr)
         sys.exit(1)
 
     # 1. List repos
