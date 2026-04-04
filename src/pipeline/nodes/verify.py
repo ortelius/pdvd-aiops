@@ -73,9 +73,10 @@ def verify_node(state: PipelineState) -> dict:
         return {"verification_results": []}
 
     # Check if LLM is available (skip verification if no API credits)
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key or api_key.startswith("test-") or api_key == "your-anthropic-api-key-here":
-        print("  [verify] Skipping — no Anthropic API key configured")
+    from src.config.llm import get_required_api_key
+    key_name, api_key = get_required_api_key()
+    if key_name and (not api_key or api_key.startswith("test-")):
+        print(f"  [verify] Skipping — no {key_name} configured")
         return {"verification_results": [{"check": "skipped", "status": "warn",
                 "detail": "Verification skipped — no API credits available"}]}
 

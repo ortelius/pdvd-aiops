@@ -14,6 +14,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# API key env var per provider (None = no key required)
+PROVIDER_API_KEYS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GOOGLE_API_KEY",
+    "ollama": None,
+}
+
 # Default models per provider
 DEFAULT_MODELS = {
     "anthropic": "claude-sonnet-4-5-20250929",
@@ -22,6 +31,19 @@ DEFAULT_MODELS = {
     "groq": "llama-3.3-70b-versatile",
     "ollama": "llama3",
 }
+
+
+def get_required_api_key() -> tuple[Optional[str], str]:
+    """
+    Return (env_var_name, env_var_value) for the active LLM provider.
+
+    Returns (None, "") for providers that don't need an API key (e.g. Ollama).
+    """
+    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    env_var = PROVIDER_API_KEYS.get(provider)
+    if env_var is None:
+        return None, ""
+    return env_var, os.getenv(env_var, "")
 
 
 def get_llm(
