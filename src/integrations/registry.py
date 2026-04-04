@@ -220,9 +220,7 @@ def _get_integration_env() -> dict:
     if extra_paths:
         env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
 
-    # Renovate expects GITHUB_TOKEN
-    if not env.get("GITHUB_TOKEN") and env.get("GITHUB_PERSONAL_ACCESS_TOKEN"):
-        env["GITHUB_TOKEN"] = env["GITHUB_PERSONAL_ACCESS_TOKEN"]
+    # Renovate and other tools expect GITHUB_TOKEN (already set in env)
 
     return env
 

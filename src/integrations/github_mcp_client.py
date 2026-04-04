@@ -85,10 +85,10 @@ class GitHubMCPClient:
                               If not specified, auto-detects available runtime.
                               Works with Docker Desktop, OrbStack, Podman, etc.
         """
-        self.github_token = github_token or os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        self.github_token = github_token or os.getenv("GITHUB_TOKEN")
         if not self.github_token:
             raise ValueError(
-                "GitHub token not provided. Set GITHUB_PERSONAL_ACCESS_TOKEN "
+                "GitHub token not provided. Set GITHUB_TOKEN "
                 "environment variable or pass token to constructor."
             )
 

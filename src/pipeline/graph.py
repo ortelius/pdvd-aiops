@@ -164,7 +164,7 @@ def _validate_repo_ownership(repo_name: str):
     import os
     import requests
 
-    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN", "")
+    token = os.getenv("GITHUB_TOKEN", "")
     if not token:
         return  # Can't validate without a token; let it fail later
 

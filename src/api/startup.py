@@ -96,13 +96,13 @@ def check_environment_variables():
         provider = os.getenv("LLM_PROVIDER", "anthropic")
         print(f"  LLM provider: {provider} (no API key required)")
 
-    # Check GITHUB_PERSONAL_ACCESS_TOKEN
-    github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    # Check GITHUB_TOKEN
+    github_token = os.getenv("GITHUB_TOKEN")
     if github_token:
-        print(f"  GITHUB_PERSONAL_ACCESS_TOKEN: Set ({github_token[:8]}...)")
+        print(f"  GITHUB_TOKEN: Set ({github_token[:8]}...)")
     else:
-        print("  GITHUB_PERSONAL_ACCESS_TOKEN: NOT SET")
-        print("    Export it: export GITHUB_PERSONAL_ACCESS_TOKEN=your-token")
+        print("  GITHUB_TOKEN: NOT SET")
+        print("    Export it: export GITHUB_TOKEN=your-token")
         all_set = False
 
     return all_set
@@ -247,7 +247,7 @@ def main():
             print("  1. Start Docker Desktop (or: sudo systemctl start docker)")
             print("  2. pip install -r requirements.txt")
             print("  3. cp .env.example .env && edit .env")
-            print("  4. export GITHUB_PERSONAL_ACCESS_TOKEN=your-token")
+            print("  4. export GITHUB_TOKEN=your-token")
             sys.exit(1)
 
         # Pull MCP image

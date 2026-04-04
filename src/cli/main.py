@@ -40,11 +40,11 @@ def validate_prerequisites() -> tuple[bool, str]:
         )
 
     # Check for GitHub Personal Access Token
-    github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+    github_token = os.getenv("GITHUB_TOKEN")
     if not github_token:
         return False, (
-            "GITHUB_PERSONAL_ACCESS_TOKEN not set. "
-            "Please set your GitHub token: export GITHUB_PERSONAL_ACCESS_TOKEN='your_token_here'. "
+            "GITHUB_TOKEN not set. "
+            "Please set your GitHub token: export GITHUB_TOKEN='your_token_here'. "
             "Create a token at: https://github.com/settings/tokens (Required scopes: repo, workflow)"
         )
 
@@ -86,7 +86,7 @@ What it does:
 
 Prerequisites:
   - Docker installed and running
-  - GITHUB_PERSONAL_ACCESS_TOKEN environment variable set
+  - GITHUB_TOKEN environment variable set
   - LLM provider API key (GROQ_API_KEY, ANTHROPIC_API_KEY, etc.)
   - Git configured with push access to the repository
 """)

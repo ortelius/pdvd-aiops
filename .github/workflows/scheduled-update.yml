@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - uses: actions/setup-go@v5
         with:
@@ -33,8 +33,10 @@ jobs:
 
       - name: Run scheduled updates
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          LLM_MODEL_NAME: ${{ secrets.LLM_MODEL_NAME }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # GitHub access
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           REPO_PREFIX: pdvd
           REPO_OWNERS: ortelius
