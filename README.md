@@ -42,6 +42,30 @@ That's it. Come back to a PR like this:
 
 ---
 
+### What's New
+
+**Dependency Health**
+- **Auto-Update Engine** — Runs ecosystem-native outdated checks across 8 package managers, updates all packages, and delivers a tested PR
+- **Changelog Intelligence** — Fetches real changelogs from GitHub Releases and PyPI for major bumps; LLM distills breaking changes and writes migration steps
+- **Smart Grouping** — Groups coupled packages (`react` + `react-dom` + `@types/react`, eslint + plugins) into batches so partial updates don't break the build
+
+**Security**
+- **CVE Auto-Patching** — Scans with 7 tools (pip-audit, npm audit, govulncheck, Trivy, OSV-scanner, Semgrep, Bandit) and auto-patches fixable CVEs into the PR
+- **CVE Tracking Issues** — Unfixable CVEs get a persistent GitHub Issue with severity, remediation guidance, and TODO comments in the dependency file — updated on every scan
+- **Reachability Analysis** — Greps source code for imports of vulnerable packages; LLM determines whether the vulnerable code path is actually reachable from your application
+
+**Build Stability**
+- **Failure Root-Cause** — LLM reads the full error output + dependency diff and pinpoints the exact package, API change, and code fix needed; filed as a GitHub Issue
+- **Binary Search Rollback** — Ranks updated packages by suspicion (error mentions + major-bump risk), rolls back the riskiest half first, isolates the culprit in log2(n) retries
+- **Config Drift Detection** — After major bumps, scans tsconfig, eslintrc, jest.config for stale or deprecated options and flags drift in the PR
+
+**Intelligence**
+- **Source Code Impact** — Greps source for imports of major-bumped packages; LLM predicts which lines will break and writes the exact fix
+- **Maintainer PR Summary** — Decision-ready narrative at the top of every PR: direct vs transitive, risk level, security impact, merge recommendation
+- **Multi-Repo Intelligence** — After batch runs across an org, synthesizes shared CVEs, recommends which repos to update first for maximum impact
+
+---
+
 ## What It Does
 
 | Step | What happens | Is it smart? |
