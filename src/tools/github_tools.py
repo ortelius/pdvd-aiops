@@ -721,7 +721,10 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
                     security_fixes: list[dict] = None,
                     unfixable_cves: list[dict] = None,
                     changelog_risk_summary: str = None,
+                    code_impact_summary: str = None,
                     security_priority_summary: str = None,
+                    reachability_summary: str = None,
+                    config_drift_summary: str = None,
                     maintainer_summary: str = None) -> tuple[str, str]:
     """
     Build PR title and body from update data.
@@ -734,12 +737,9 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     unfixable_cves = unfixable_cves or []
     is_security_pr = security_fixes and not build_log
 
-    if is_security_pr:
-        title = f"fix(security): patch {len(security_fixes)} CVE(s) in dependencies"
-    elif applied_updates:
-        title = f"chore(deps): update {len(applied_updates)} dependencies"
-    else:
-        title = "chore(deps): dependency maintenance"
+    title = _generate_smart_title(
+        applied_updates, security_fixes, is_security_pr, build_log,
+    )
 
     # Get ecosystem plugin for release URLs
     from src.ecosystems import get_plugin_by_name
@@ -782,6 +782,18 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     if changelog_risk_summary:
         body += "\n\n## Breaking Change Risk Assessment\n\n"
         body += changelog_risk_summary
+        body += "\n"
+
+    # Application code impact analysis (from intelligence layer)
+    if code_impact_summary:
+        body += "\n\n## Source Code Impact\n\n"
+        body += code_impact_summary
+        body += "\n"
+
+    # Configuration drift detection (from intelligence layer)
+    if config_drift_summary:
+        body += "\n\n## Configuration Drift\n\n"
+        body += config_drift_summary
         body += "\n"
 
     # Security fixes section
@@ -921,6 +933,11 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
             if security_priority_summary:
                 body += "### Prioritized Recommendations\n\n"
                 body += security_priority_summary
+                body += "\n\n"
+            # LLM-powered reachability analysis (from intelligence layer)
+            if reachability_summary:
+                body += "### Reachability Analysis\n\n"
+                body += reachability_summary
                 body += "\n\n"
             body += _build_security_recommendations(all_findings)
 
@@ -1106,6 +1123,67 @@ Be direct and factual. No markdown headers. No bullet points. Plain paragraph te
     except Exception:
         # Graceful fallback — no summary is fine
         return ""
+
+
+def _generate_smart_title(
+    applied_updates: list[dict],
+    security_fixes: list[dict],
+    is_security_pr: bool,
+    build_log: str,
+) -> str:
+    """
+    Generate a specific, scannable PR title — no extra LLM call needed.
+
+    Instead of generic "update N dependencies", highlights the most important
+    change: the biggest major bump, or the most critical security fix.
+    Keeps under 72 chars for GitHub display.
+    """
+    MAX_TITLE_LEN = 70
+
+    if is_security_pr:
+        # Security-only PR: mention the most critical fix
+        if len(security_fixes) == 1:
+            sf = security_fixes[0]
+            vuln = sf.get("vulnerability", "").split(",")[0].strip()
+            return f"fix(security): patch {vuln} in {sf['name']}"
+        # Multiple fixes: mention count + most critical package
+        pkgs = sorted(set(sf["name"] for sf in security_fixes))
+        if len(pkgs) <= 2:
+            return f"fix(security): patch {len(security_fixes)} CVE(s) in {', '.join(pkgs)}"
+        return f"fix(security): patch {len(security_fixes)} CVE(s) in {pkgs[0]} and {len(pkgs) - 1} more"
+
+    if not applied_updates:
+        return "chore(deps): dependency maintenance"
+
+    # Classify updates
+    majors = [u for u in applied_updates if _categorize_update(u) == "major"]
+    total = len(applied_updates)
+
+    if majors:
+        # Highlight the most impactful major bump
+        if len(majors) == 1:
+            m = majors[0]
+            base = f"chore(deps): update {m['name']} to v{m['new'].lstrip('v')}"
+            if total > 1:
+                base += f" + {total - 1} more"
+            return base[:MAX_TITLE_LEN]
+        elif len(majors) <= 2:
+            names = ", ".join(m["name"] for m in majors)
+            title = f"chore(deps): update {names}"
+            if total > len(majors):
+                title += f" + {total - len(majors)} more"
+            return title[:MAX_TITLE_LEN]
+        else:
+            return f"chore(deps): update {len(majors)} major + {total - len(majors)} deps"
+
+    # No major bumps — mention the most significant packages
+    if total <= 3:
+        names = ", ".join(u["name"] for u in applied_updates)
+        title = f"chore(deps): update {names}"
+        return title[:MAX_TITLE_LEN]
+
+    # Many patch/minor updates: generic but with count
+    return f"chore(deps): update {total} dependencies"
 
 
 def _format_release_link(plugin, package_name: str, version: str) -> str:

@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 from src.ecosystems import get_plugin_by_name
+from src.intelligence.update_grouping import group_updates
 from src.pipeline.state import PipelineState
 from src.utils.env import get_pipeline_env
 from src.utils.subprocess import run_cmd
@@ -38,10 +39,21 @@ def prepare_node(state: PipelineState) -> dict:
         if not plugin:
             return {"final_status": "error", "final_message": f"No plugin for {package_manager}"}
 
+        # Smart grouping: group related packages for better rollback and PR clarity
+        groups = group_updates(outdated_packages, package_manager, tracker=tracker)
+        if len(groups) > 1:
+            group_summary = ", ".join(f"[{', '.join(p['name'] for p in g)}]" for g in groups)
+            print(f"  [prepare] Grouped {len(outdated_packages)} packages into {len(groups)} batches: {group_summary}")
+
         if plugin.updates_via_command:
-            return _update_via_command(repo_path, plugin, outdated_packages, build_commands, tracker)
+            result = _update_via_command(repo_path, plugin, outdated_packages, build_commands, tracker)
         else:
-            return _update_via_file(repo_path, plugin, outdated_packages, build_commands, tracker)
+            result = _update_via_file(repo_path, plugin, outdated_packages, build_commands, tracker)
+
+        # Attach grouping info to state for PR body and rollback intelligence
+        if len(groups) > 1:
+            result["update_groups"] = groups
+        return result
 
     except Exception as e:
         return {"final_status": "error", "final_message": f"Prepare failed: {str(e)}"}

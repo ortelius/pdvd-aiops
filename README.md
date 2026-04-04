@@ -12,7 +12,7 @@
   <a href="#how-it-works">How It Works</a> &bull;
   <a href="#intelligence-layer">Intelligence Layer</a> &bull;
   <a href="#supported-ecosystems">Ecosystems</a> &bull;
-  <a href="#api">API</a>
+  <a href="#api-server">API</a>
 </p>
 
 ---
@@ -27,12 +27,15 @@ python -m src.cli.main your-org/your-repo
 
 That's it. Come back to a PR like this:
 
-> **chore(deps): update 14 dependencies**
+> **chore(deps): update go-git to v6.0 + 13 more**
 >
 > This PR updates 11 direct and 3 transitive dependencies (2 major, 5 minor, 7 patch). The `go-git` v6 bump removes the deprecated `PlainClone` API — use `Clone()` instead. Security posture improves: the `x/net` HTTP/2 fix resolves GO-2024-2687. All tests pass.
 >
 > ### Breaking Change Risk Assessment
-> **go-git v6.0.0** drops the `PlainClone` function. Migrate to `Clone()` with a `CloneOptions` struct. Risk: HIGH — this is a widely-used function...
+> **go-git v6.0.0** (from CHANGELOG.md): Removed `PlainClone()` and `PlainOpen()`. Use `Clone()` with `CloneOptions` struct. Renamed `Auth` to `AuthMethod` across all transport types...
+>
+> ### Source Code Impact
+> **go-git** — found in 3 files: `pkg/repo/clone.go:14` calls `PlainClone()`, `pkg/repo/open.go:8` calls `PlainOpen()`...
 >
 > ### Prioritized Recommendations
 > **Fix immediately**: `golang.org/x/net` (GO-2024-2687) — the vulnerable HTTP/2 handler is called from your `server.go`...
@@ -46,14 +49,16 @@ That's it. Come back to a PR like this:
 | Clone & detect | Identifies your ecosystem from lock files — pip, npm, cargo, go, poetry, pnpm, yarn | Deterministic |
 | Check outdated | Runs `npm outdated`, `pip list --outdated`, `go list -u -m -json all`, etc. | Deterministic |
 | Find build commands | Parses your CI config first. No CI? Reads `package.json` scripts. Still nothing? Asks the LLM once | Hybrid |
-| Apply updates | Edits your dependency file (or runs `cargo update` / `go get -u`) | Deterministic |
+| **Smart grouping** | Groups related packages into batches (`react` + `react-dom` + `@types/react`). Coupled updates move together, independent ones can be staged | Hybrid |
+| Apply updates | Edits your dependency file (or runs `cargo update` / `go get -u`), one group at a time | Deterministic |
 | Build & test | Runs your actual build and test commands | Deterministic |
-| Rollback loop | Test failed? Identifies the culprit (heuristic first, LLM if ambiguous), rolls it back, retries — up to 3x | Hybrid |
+| **Binary search rollback** | Test failed? Ranks suspects by error mentions + major-bump risk. High confidence: rolls back one. Low confidence: rolls back the suspicious *half* to bisect the culprit faster | Hybrid |
 | Run integrations | Executes every linter/formatter configured in your repo (ESLint, Ruff, Prettier, Black...) | Deterministic |
 | Security audit | Runs `pip-audit` / `npm audit` / `cargo audit` / `govulncheck` + Trivy, OSV-scanner, Semgrep... | Deterministic |
 | Patch CVEs | Applies fixes for CVEs that have a fix version. Adds TODO comments for unfixable ones | Deterministic |
-| LLM analysis | Changelog risk assessment, security triage, failure diagnosis, maintainer summary | LLM (0-4 calls) |
-| Open PR or Issue | Creates a GitHub PR with full details — or an Issue if things broke | Deterministic |
+| **LLM analysis** | 7 analyzers: changelog risk, source code impact, config drift, security triage, reachability, failure diagnosis, maintainer summary | LLM (0-7 calls) |
+| **Smart PR title** | Not just "update N deps" — highlights the biggest change: `chore(deps): update go-git to v6.0 + 13 more` | Deterministic |
+| Open PR or Issue | Creates a GitHub PR with full details — or an Issue with root-cause analysis if things broke | Deterministic |
 
 **Total LLM cost per run**: $0.001 – $0.01 depending on what fires. Most of the pipeline is free.
 
@@ -198,17 +203,33 @@ graph TD
 
 ## Intelligence Layer
 
-This is where the LLM does work that deterministic code *can't*. Each analyzer fires only when its preconditions are met — no wasted calls.
+7 analyzers that fire only when their preconditions are met. Patch-only updates trigger 1. A major bump with audit findings can trigger up to 5. An empty state triggers 0.
 
-### 1. Changelog Risk Assessment
+### 1. Changelog Risk Assessment (with real changelog fetching)
 
-> *"go-git v6.0.0 drops the PlainClone API. Migrate to Clone() with CloneOptions. Risk: HIGH."*
+> *"go-git v6.0.0 (from GitHub release): Removed PlainClone() and PlainOpen(). Use Clone() with CloneOptions. Renamed Auth to AuthMethod."*
 
-When a dependency jumps a major version, the LLM summarizes what broke and what to migrate. The PR body gets a **Breaking Change Risk Assessment** section instead of just "major update."
+Doesn't just guess from the version number — **fetches the actual CHANGELOG.md, GitHub release page, or PyPI description** and extracts the breaking changes section. Falls back to inference when the changelog isn't available.
 
 **Fires when**: Any applied update is a major version bump.
 
-### 2. Security Fix Prioritization
+### 2. Application Code Impact Analysis
+
+> *"Your code calls `PlainClone()` in `pkg/repo/clone.go:14` and `PlainOpen()` in `pkg/repo/open.go:8`. Both were removed in go-git v6. Migrate to `Clone()` with `CloneOptions{URL: url}`."*
+
+The only analyzer that **reads your source code**. Greps for imports and usage of major-bumped packages, then feeds those call sites to the LLM to predict exactly which lines will break and what the fix looks like.
+
+**Fires when**: Major bumps exist + source code imports the bumped packages.
+
+### 3. Configuration Drift Detection
+
+> *"Your `tsconfig.json` targets `es2017` but TypeScript 5.4 supports `es2024`. ESLint 9 uses flat config format — your `.eslintrc.json` uses the legacy format."*
+
+After major dependency updates, scans config files (`tsconfig.json`, `.eslintrc`, `jest.config`, `pyproject.toml`, etc.) and flags settings that are stale or deprecated for the new versions.
+
+**Fires when**: Major bumps + related config files exist in the repo.
+
+### 4. Security Fix Prioritization
 
 > *"Fix immediately: golang.org/x/net (GO-2024-2687) — the vulnerable HTTP/2 handler is called from your server.go. Monitor: 4 circl advisories are unreachable from your code."*
 
@@ -216,7 +237,16 @@ Your audit found 190 advisories. This tells you which ones matter and why — gr
 
 **Fires when**: Security audit has findings.
 
-### 3. Test Failure Diagnosis
+### 5. Reachability Analysis (npm/pip)
+
+> *"**lodash** — found in `src/utils.js:3`: `const _ = require('lodash')`. The CVE affects `_.template()` which IS used in `src/render.js:47`. This is REACHABLE."*
+> *"**xml2js** — NOT found in source imports. This is a transitive dependency, likely NOT REACHABLE."*
+
+Go gets real call-graph analysis from `govulncheck`. npm and pip get nothing — until now. This analyzer greps your source for imports of vulnerable packages and determines whether the vulnerable code path is actually reachable from your application.
+
+**Fires when**: Non-Go ecosystems with audit findings.
+
+### 6. Test Failure Diagnosis
 
 > *"Package express v5.0 renamed app.delete() to app.route().delete(). Update line 47 of routes/users.js."*
 
@@ -224,7 +254,7 @@ When the build or tests fail after updates (and rollback is exhausted), the LLM 
 
 **Fires when**: Build or test failed (after max retries).
 
-### 4. Maintainer PR Summary
+### 7. Maintainer PR Summary
 
 > *"This PR updates 11 direct and 3 transitive dependencies. The x/net patch fixes a known HTTP/2 DoS. No breaking API changes. Security posture improves — 4 circl advisories remain but are unreachable."*
 
@@ -232,13 +262,42 @@ A decision-ready summary at the top of every PR. Not a list of packages — a na
 
 **Fires when**: Any updates or security fixes were applied.
 
-### 5. Multi-Repo Intelligence
+### Bonus: Multi-Repo Intelligence
 
 > *"5 of your 12 repos depend on vulnerable golang.org/x/net. Updating pdvd-backend and pdvd-frontend would eliminate 28 advisories. pdvd-auth can't be updated — it pins v0.12 for compatibility."*
 
 After running a batch across your org, one LLM call synthesizes which repos share vulnerabilities, which to update first, and where to focus your time.
 
 **Fires when**: `run_pipeline_batch()` completes across multiple repos.
+
+---
+
+## Smart Rollback
+
+The rollback system uses a **binary search strategy** instead of naive one-at-a-time:
+
+| Scenario | Old behavior | New behavior |
+|----------|-------------|-------------|
+| Error mentions `express` 5x | Roll back `express` | Roll back `express` (high confidence) |
+| Error is ambiguous, 14 packages updated | Roll back most-mentioned, pray | Rank all packages by suspicion (error mentions + major-bump risk), roll back the suspicious **half** |
+| `react` group updated together | Roll back one, break the other | Roll back entire `react` + `react-dom` + `@types/react` group together |
+
+With 3 retries and binary search, you can isolate the culprit among 8+ packages. The old approach could only test 3.
+
+---
+
+## Smart Update Grouping
+
+Before applying updates, the pipeline groups related packages into compatible batches:
+
+```
+Input:  react, react-dom, @types/react, eslint, eslint-config-airbnb, lodash
+Output: [lodash] → [eslint, eslint-config-airbnb] → [react, react-dom, @types/react]
+```
+
+Groups are applied safest-first (patches before majors). The grouping uses:
+1. **Deterministic rules** — `@types/X` with `X`, eslint family, babel family, pytest family, Go module prefixes
+2. **LLM fallback** — for complex cases with 5+ packages and naming conventions that heuristics miss
 
 ---
 
@@ -295,14 +354,17 @@ The pipeline doesn't care which model you use. Every LLM call has a deterministi
 
 A PR created by pdvd-aiops includes:
 
+- **Smart title** — `chore(deps): update go-git to v6.0 + 13 more` instead of generic `update N deps`
 - **Maintainer Summary** — LLM-written, decision-ready narrative
 - **Updated Dependencies Table** — package, version change, update type, release link
-- **Breaking Change Risk Assessment** — for major bumps, what broke and how to migrate
+- **Breaking Change Risk Assessment** — from *actual* changelogs, not guesses
+- **Source Code Impact** — which files import the major-bumped packages and which lines will break
+- **Configuration Drift** — stale configs flagged after major updates
 - **Security Fixes Applied** — CVEs patched, with links
 - **Unfixable CVEs** — with TODO comments added to your dependency file
 - **Build & Test Logs** — collapsible, full output
 - **Integration Checks** — linter/formatter results
-- **Security Audit** — prioritized recommendations + scanner summary
+- **Security Audit** — prioritized recommendations + reachability analysis + scanner summary
 - **Detected Tools** — tools configured but not installed on the runner
 
 ---
@@ -314,7 +376,7 @@ When builds fail after exhausting retries:
 - **Root Cause Analysis** — LLM diagnosis of exactly what broke and how to fix it
 - **Updates Attempted** — what was changed
 - **Error Logs** — full build/test output
-- **Rollback History** — what was tried and rolled back
+- **Rollback History** — what was tried and rolled back (including batch rollbacks)
 
 When unfixable CVEs are found:
 
@@ -329,16 +391,20 @@ When unfixable CVEs are found:
 
 ```
 src/
-  intelligence/        # LLM analysis layer (5 analyzers)
+  intelligence/        # LLM analysis layer (7 analyzers + multi-repo + grouping)
     base.py            # Analyzer protocol + shared invoke_llm()
-    changelog.py       # Breaking change risk assessment
+    changelog.py       # Changelog fetching + breaking change risk assessment
+    impact_analysis.py # Source code usage scanning for major bumps
+    config_drift.py    # Stale config detection after updates
     security_prioritizer.py  # CVE triage and prioritization
+    reachability.py    # npm/pip vulnerability reachability from source code
     failure_diagnosis.py     # Build/test failure root cause
     pr_summary.py      # Maintainer-focused PR narrative
     multi_repo.py      # Cross-repo intelligence synthesis
+    update_grouping.py # Smart update batching (coupled packages together)
   pipeline/
     state.py           # PipelineState TypedDict — single source of truth
-    edges.py           # Conditional routing (14 edge functions)
+    edges.py           # Conditional routing (10 edge functions)
     graph.py           # LangGraph wiring + run_pipeline() + run_pipeline_batch()
     nodes/             # 14 nodes (one file each)
   ecosystems/          # Plugin-per-ecosystem (pip, npm, cargo, go, poetry, pipenv, yarn, pnpm)
@@ -347,7 +413,7 @@ src/
     registry.py        # DevOps tool auto-detection + execution
     definitions/       # Tool configs (ESLint, Trivy, Prettier, ...)
   tools/
-    github_tools.py    # PR/Issue creation, formatting, find-or-update
+    github_tools.py    # PR/Issue creation, smart titles, formatting, find-or-update
   config/
     llm.py             # Multi-provider LLM factory
   callbacks/
@@ -367,8 +433,8 @@ src/
 | **Single Responsibility** | Each pipeline node does one thing. Each analyzer handles one analysis type |
 | **Open/Closed** | New ecosystems = new file + `@register`. New analyzers = new class + add to registry list. Zero modification to existing code |
 | **Dependency Inversion** | Pipeline nodes depend on the `Analyzer` protocol, not concrete classes. `get_llm()` abstracts the provider |
-| **Strategy Pattern** | File-based vs command-based updates/rollbacks per ecosystem plugin |
-| **Guard Clause** | Every analyzer's `should_run()` prevents wasted LLM calls — patch-only updates skip changelog analysis |
+| **Strategy Pattern** | File-based vs command-based updates/rollbacks per ecosystem. Binary search vs single rollback based on confidence |
+| **Guard Clause** | Every analyzer's `should_run()` prevents wasted LLM calls — patch-only updates skip 6 of 7 analyzers |
 | **Graceful Degradation** | Every LLM call has a fallback. If the model is down, you still get a PR — just without the narrative |
 
 ---
@@ -389,12 +455,16 @@ src/
 |-----------|-----------|--------|------|
 | Orchestrator | 0 (single route) | 0 | $0 |
 | Detect commands | 0-1 (only if no CI config) | 0-300 | $0-0.001 |
+| Smart grouping | 0-1 (only if >5 packages + major bumps) | 0-400 | $0-0.001 |
 | Rollback analysis | 0-1 (only if heuristics fail) | 0-200 | $0-0.001 |
-| Changelog risk | 0-1 (only if major bumps) | 0-500 | $0-0.002 |
+| Changelog risk | 0-1 (only if major bumps) | 0-600 | $0-0.002 |
+| Code impact | 0-1 (only if major bumps + source imports) | 0-600 | $0-0.002 |
+| Config drift | 0-1 (only if major bumps + config files) | 0-500 | $0-0.002 |
 | Security triage | 0-1 (only if findings exist) | 0-600 | $0-0.002 |
+| Reachability | 0-1 (only for npm/pip with findings) | 0-500 | $0-0.002 |
 | Failure diagnosis | 0-1 (only on failure) | 0-500 | $0-0.002 |
 | Maintainer summary | 0-1 (if updates applied) | 0-400 | $0-0.001 |
-| **Typical total** | **1-3** | **~800** | **~$0.003** |
+| **Typical total** | **2-4** | **~1200** | **~$0.005** |
 
 Everything else — ecosystem detection, outdated checks, builds, tests, security audits, git operations — is deterministic and free.
 
