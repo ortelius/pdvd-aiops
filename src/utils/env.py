@@ -3,7 +3,7 @@ Unified environment builder for pipeline subprocess calls.
 
 Consolidates the _get_env() function that was duplicated across 6 node files.
 Ensures PATH includes Python, Go, and Cargo bin directories, and that
-GITHUB_TOKEN is set for tools that expect it.
+GITHUB_TOKEN is available for tools that expect it.
 """
 
 import os
@@ -19,7 +19,7 @@ def get_pipeline_env(repo_path: str = "") -> dict:
     - Venv python if repo_path has a .venv (for pip ecosystem)
     - GOPATH/bin (for govulncheck, go tools)
     - ~/.cargo/bin (for cargo-audit, cargo tools)
-    - GITHUB_TOKEN alias (for Renovate and other tools)
+    - GITHUB_TOKEN (for Renovate and other tools)
 
     Args:
         repo_path: Optional path to the repo being processed.
@@ -49,9 +49,5 @@ def get_pipeline_env(repo_path: str = "") -> dict:
 
     if extra_paths:
         env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
-
-    # Renovate and other tools expect GITHUB_TOKEN
-    if not env.get("GITHUB_TOKEN") and env.get("GITHUB_PERSONAL_ACCESS_TOKEN"):
-        env["GITHUB_TOKEN"] = env["GITHUB_PERSONAL_ACCESS_TOKEN"]
 
     return env

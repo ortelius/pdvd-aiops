@@ -56,7 +56,7 @@ class PersistentMCPServer:
 
     def __init__(self):
         """Initialize the MCP server manager."""
-        self.github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        self.github_token = os.getenv("GITHUB_TOKEN")
         self.docker_path = get_docker_path()
         self.container_runtime = self._detect_runtime()
 
@@ -128,7 +128,7 @@ class PersistentMCPServer:
         """
         if not self.github_token:
             self._status = MCPServerStatus.ERROR
-            self._error_message = "GITHUB_PERSONAL_ACCESS_TOKEN not set"
+            self._error_message = "GITHUB_TOKEN not set"
             return False
 
         self._status = MCPServerStatus.STARTING

@@ -108,7 +108,7 @@ pip install -e .
 ### Configure
 
 ```bash
-export GITHUB_PERSONAL_ACCESS_TOKEN='ghp_...'
+export GITHUB_TOKEN='ghp_...'
 
 # Pick your LLM provider
 export LLM_PROVIDER=groq           # anthropic | gemini | openai | groq | huggingface | ollama

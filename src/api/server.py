@@ -196,7 +196,7 @@ async def process_repository_update(
 
         # Set GitHub token if provided
         if github_token:
-            os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
+            os.environ["GITHUB_TOKEN"] = github_token
 
         print(f"[Job {job_id}] Processing repository: {repository}")
 
@@ -262,7 +262,7 @@ async def health_check():
         docker_available = docker_check.returncode == 0
 
         # Check GitHub token
-        github_token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        github_token = os.getenv("GITHUB_TOKEN")
         token_configured = github_token is not None
 
         # Check Anthropic API key

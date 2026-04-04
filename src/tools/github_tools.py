@@ -267,7 +267,7 @@ def _update_existing_pr(owner: str, repo: str, pr_number: int, title: str, body:
 
     repo_full = f"{owner}/{repo}"
     pr_url = f"https://github.com/{repo_full}/pull/{pr_number}"
-    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN", "")
+    token = os.getenv("GITHUB_TOKEN", "")
 
     if not token:
         return {"status": "error", "message": "No GitHub token available"}
