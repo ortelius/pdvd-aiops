@@ -4,7 +4,6 @@ Exposes REST endpoints to analyze and update repository dependencies.
 """
 
 import asyncio
-import json
 import os
 import subprocess
 from contextlib import asynccontextmanager
@@ -14,7 +13,7 @@ from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from src.agents.orchestrator import validate_prerequisites
+from src.cli.main import validate_prerequisites
 from src.pipeline.graph import run_pipeline
 from src.utils.docker import get_docker_path
 

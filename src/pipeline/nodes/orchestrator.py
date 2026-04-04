@@ -1,5 +1,5 @@
 """
-Orchestrator router node — LLM-powered (Haiku).
+Orchestrator router node — LLM-powered (uses configured LLM_PROVIDER).
 
 Routes incoming tasks to the appropriate pipeline path.
 Today: always routes to "dependency_update".
@@ -47,7 +47,7 @@ def orchestrator_node(state: PipelineState) -> dict:
                 tracker.record_tool_call("route_task", f"direct → {task}")
             return {"task": task}
 
-        # Multi-route: use Haiku to decide
+        # Multi-route: use LLM to decide
         llm = get_llm(temperature=0, max_tokens=50)
 
         routes_desc = "\n".join(
@@ -70,7 +70,7 @@ Return ONLY the action name as a JSON string: {{"action": "action_name"}}"""
             usage = getattr(response, "usage_metadata", None)
             if usage:
                 tracker.record_llm_call(
-                    "claude-haiku-4-5-20251001",
+                    getattr(llm, "model_name", "unknown"),
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
                 )

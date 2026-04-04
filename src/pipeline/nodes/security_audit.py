@@ -11,7 +11,6 @@ Both sources are combined into a single audit_results list.
 """
 
 import os
-import shutil
 import subprocess
 
 from src.ecosystems import get_plugin_by_name

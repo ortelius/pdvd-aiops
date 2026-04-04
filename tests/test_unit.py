@@ -73,7 +73,7 @@ class TestEdgeRouting:
     def test_route_after_build_failure(self):
         from src.pipeline.edges import route_after_build
         state = {"build_result": {"succeeded": False}}
-        assert route_after_build(state) == "create_issue"
+        assert route_after_build(state) == "llm_analysis"
 
     def test_route_after_test_pass(self):
         from src.pipeline.edges import route_after_test
@@ -88,7 +88,7 @@ class TestEdgeRouting:
     def test_route_after_test_fail_max_retries(self):
         from src.pipeline.edges import route_after_test
         state = {"test_result": {"succeeded": False}, "retry_count": 3}
-        assert route_after_test(state) == "create_issue"
+        assert route_after_test(state) == "llm_analysis"
 
     def test_route_after_rollback_can_retry(self):
         from src.pipeline.edges import route_after_rollback
@@ -103,7 +103,7 @@ class TestEdgeRouting:
     def test_route_after_security_audit_has_updates(self):
         from src.pipeline.edges import route_after_security_audit
         state = {"applied_updates": [{"name": "foo"}]}
-        assert route_after_security_audit(state) == "create_pr"
+        assert route_after_security_audit(state) == "llm_analysis"
 
     def test_route_after_security_audit_fixable_cves(self):
         from src.pipeline.edges import route_after_security_audit
@@ -123,7 +123,7 @@ class TestEdgeRouting:
     def test_route_after_security_fixes_has_fixes(self):
         from src.pipeline.edges import route_after_security_fixes
         state = {"security_fixes_applied": [{"name": "foo"}]}
-        assert route_after_security_fixes(state) == "create_pr"
+        assert route_after_security_fixes(state) == "llm_analysis"
 
     def test_route_after_security_fixes_nothing(self):
         from src.pipeline.edges import route_after_security_fixes
@@ -140,13 +140,13 @@ class TestEdgeRouting:
         assert route_after_security_fixes(state) == "create_issue"
 
     def test_route_after_security_fixes_both_fixes_and_unfixable(self):
-        """When we have both real fixes AND unfixable CVEs, create PR (fixes take priority)."""
+        """When we have both real fixes AND unfixable CVEs, go to llm_analysis then PR."""
         from src.pipeline.edges import route_after_security_fixes
         state = {
             "security_fixes_applied": [{"name": "requests", "new": "2.32.0"}],
             "unfixable_cves": [{"package": "pip", "vulnerability": "CVE-2025-1234"}],
         }
-        assert route_after_security_fixes(state) == "create_pr"
+        assert route_after_security_fixes(state) == "llm_analysis"
 
     def test_route_after_security_fixes_empty_lists_ends(self):
         """Empty fixes and empty unfixable → end."""

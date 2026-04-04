@@ -534,3 +534,14 @@ async def get_mcp_status() -> MCPServerInfo:
     """Get the status of the global MCP server."""
     server = await get_mcp_server()
     return server.info
+
+
+# ── Event loop bridge (FastAPI async → synchronous pipeline) ──
+
+_main_event_loop = None
+
+
+def set_main_event_loop(loop):
+    """Store the main event loop for use by synchronous MCP callers."""
+    global _main_event_loop
+    _main_event_loop = loop

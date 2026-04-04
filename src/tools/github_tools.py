@@ -6,7 +6,6 @@ as standalone functions (not @tool decorated) for direct use by pipeline nodes.
 The MCP integration is preserved.
 """
 
-import json
 import os
 import re
 import subprocess
@@ -124,7 +123,7 @@ def _run_mcp_call(coro_func, *args):
 
     # Priority 1: Use event loop set by FastAPI server
     try:
-        from src.agents.updater import _main_event_loop
+        from src.integrations.mcp_server_manager import _main_event_loop
         loop = _main_event_loop
     except (ImportError, AttributeError):
         loop = None
@@ -720,7 +719,13 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
                     detected_integrations: list[dict] = None,
                     verification_results: list[dict] = None,
                     security_fixes: list[dict] = None,
-                    unfixable_cves: list[dict] = None) -> tuple[str, str]:
+                    unfixable_cves: list[dict] = None,
+                    changelog_risk_summary: str = None,
+                    code_impact_summary: str = None,
+                    security_priority_summary: str = None,
+                    reachability_summary: str = None,
+                    config_drift_summary: str = None,
+                    maintainer_summary: str = None) -> tuple[str, str]:
     """
     Build PR title and body from update data.
 
@@ -732,19 +737,16 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     unfixable_cves = unfixable_cves or []
     is_security_pr = security_fixes and not build_log
 
-    if is_security_pr:
-        title = f"fix(security): patch {len(security_fixes)} CVE(s) in dependencies"
-    elif applied_updates:
-        title = f"chore(deps): update {len(applied_updates)} dependencies"
-    else:
-        title = "chore(deps): dependency maintenance"
+    title = _generate_smart_title(
+        applied_updates, security_fixes, is_security_pr, build_log,
+    )
 
     # Get ecosystem plugin for release URLs
     from src.ecosystems import get_plugin_by_name
     plugin = get_plugin_by_name(package_manager)
 
-    # ── AI-generated summary (Haiku, ~$0.002) ────────────
-    ai_summary = _generate_ai_summary(
+    # ── Maintainer summary (from intelligence layer, or fallback to legacy) ──
+    summary_text = maintainer_summary or _generate_ai_summary(
         applied_updates, package_manager,
         has_tests=has_tests,
         integration_results=integration_results,
@@ -752,8 +754,8 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
     )
 
     body = ""
-    if ai_summary:
-        body += f"## Summary\n\n{ai_summary}\n\n---\n\n"
+    if summary_text:
+        body += f"## Summary\n\n{summary_text}\n\n---\n\n"
 
     # Update table
     body += "## Updated Dependencies\n\n"
@@ -775,6 +777,24 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
         for u in applied_updates:
             release = _format_release_link(plugin, u["name"], u["new"])
             body += f"| {u['name']} | {_categorize_update(u)} | `{u.get('old', '?')}` → `{u['new']}` | {release} |\n"
+
+    # Changelog risk assessment (from intelligence layer)
+    if changelog_risk_summary:
+        body += "\n\n## Breaking Change Risk Assessment\n\n"
+        body += changelog_risk_summary
+        body += "\n"
+
+    # Application code impact analysis (from intelligence layer)
+    if code_impact_summary:
+        body += "\n\n## Source Code Impact\n\n"
+        body += code_impact_summary
+        body += "\n"
+
+    # Configuration drift detection (from intelligence layer)
+    if config_drift_summary:
+        body += "\n\n## Configuration Drift\n\n"
+        body += config_drift_summary
+        body += "\n"
 
     # Security fixes section
     if security_fixes:
@@ -909,6 +929,16 @@ def format_pr_body(applied_updates: list[dict], package_manager: str,
         if not all_findings:
             body += ":shield: **No vulnerabilities found** — all security checks passed.\n\n"
         else:
+            # LLM-powered prioritization (from intelligence layer)
+            if security_priority_summary:
+                body += "### Prioritized Recommendations\n\n"
+                body += security_priority_summary
+                body += "\n\n"
+            # LLM-powered reachability analysis (from intelligence layer)
+            if reachability_summary:
+                body += "### Reachability Analysis\n\n"
+                body += reachability_summary
+                body += "\n\n"
             body += _build_security_recommendations(all_findings)
 
         # Scanner summary table
@@ -1025,7 +1055,7 @@ def _generate_ai_summary(
     """
     Use a lightweight LLM call to generate a human-quality PR summary.
 
-    Cost: ~$0.002 (Haiku). Falls back gracefully if LLM is unavailable.
+    Cost: ~1 lightweight LLM call via configured LLM_PROVIDER. Falls back gracefully if unavailable.
     """
     try:
         from src.config.llm import get_llm
@@ -1095,6 +1125,67 @@ Be direct and factual. No markdown headers. No bullet points. Plain paragraph te
         return ""
 
 
+def _generate_smart_title(
+    applied_updates: list[dict],
+    security_fixes: list[dict],
+    is_security_pr: bool,
+    build_log: str,
+) -> str:
+    """
+    Generate a specific, scannable PR title — no extra LLM call needed.
+
+    Instead of generic "update N dependencies", highlights the most important
+    change: the biggest major bump, or the most critical security fix.
+    Keeps under 72 chars for GitHub display.
+    """
+    MAX_TITLE_LEN = 70
+
+    if is_security_pr:
+        # Security-only PR: mention the most critical fix
+        if len(security_fixes) == 1:
+            sf = security_fixes[0]
+            vuln = sf.get("vulnerability", "").split(",")[0].strip()
+            return f"fix(security): patch {vuln} in {sf['name']}"
+        # Multiple fixes: mention count + most critical package
+        pkgs = sorted(set(sf["name"] for sf in security_fixes))
+        if len(pkgs) <= 2:
+            return f"fix(security): patch {len(security_fixes)} CVE(s) in {', '.join(pkgs)}"
+        return f"fix(security): patch {len(security_fixes)} CVE(s) in {pkgs[0]} and {len(pkgs) - 1} more"
+
+    if not applied_updates:
+        return "chore(deps): dependency maintenance"
+
+    # Classify updates
+    majors = [u for u in applied_updates if _categorize_update(u) == "major"]
+    total = len(applied_updates)
+
+    if majors:
+        # Highlight the most impactful major bump
+        if len(majors) == 1:
+            m = majors[0]
+            base = f"chore(deps): update {m['name']} to v{m['new'].lstrip('v')}"
+            if total > 1:
+                base += f" + {total - 1} more"
+            return base[:MAX_TITLE_LEN]
+        elif len(majors) <= 2:
+            names = ", ".join(m["name"] for m in majors)
+            title = f"chore(deps): update {names}"
+            if total > len(majors):
+                title += f" + {total - len(majors)} more"
+            return title[:MAX_TITLE_LEN]
+        else:
+            return f"chore(deps): update {len(majors)} major + {total - len(majors)} deps"
+
+    # No major bumps — mention the most significant packages
+    if total <= 3:
+        names = ", ".join(u["name"] for u in applied_updates)
+        title = f"chore(deps): update {names}"
+        return title[:MAX_TITLE_LEN]
+
+    # Many patch/minor updates: generic but with count
+    return f"chore(deps): update {total} dependencies"
+
+
 def _format_release_link(plugin, package_name: str, version: str) -> str:
     """Build a markdown release link using the ecosystem plugin."""
     if plugin:
@@ -1126,6 +1217,9 @@ def _categorize_update(update: dict) -> str:
     """Categorize as major/minor/patch."""
     old = update.get("old", "0.0.0").lstrip("^~>=v")
     new = update.get("new", "0.0.0").lstrip("^~>=v")
+    # If old version is missing/invalid, we can't categorize
+    if not old or old in ("N/A", "?", "0.0.0") or not old[0].isdigit():
+        return "unknown"
     try:
         old_parts = old.split(".")
         new_parts = new.split(".")

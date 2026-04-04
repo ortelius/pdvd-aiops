@@ -91,6 +91,7 @@ def _create_failure_issue(state: PipelineState) -> dict:
     build_log = state.get("build_log", "")
     test_log = state.get("test_log", "")
     rollback_history = state.get("rollback_history", [])
+    failure_diagnosis = state.get("failure_diagnosis")
     tracker = state.get("cost_tracker")
 
     if tracker:
@@ -102,6 +103,12 @@ def _create_failure_issue(state: PipelineState) -> dict:
         body = "## Automated Dependency Update Report\n\n"
         body += "The automated dependency update process encountered failures "
         body += "that could not be resolved automatically.\n\n"
+
+        # LLM-powered failure diagnosis (from intelligence layer)
+        if failure_diagnosis:
+            body += "### Root Cause Analysis\n\n"
+            body += failure_diagnosis
+            body += "\n\n"
 
         # Updates attempted
         if applied_updates:

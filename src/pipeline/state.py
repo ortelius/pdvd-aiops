@@ -28,7 +28,7 @@ class PipelineState(TypedDict, total=False):
 
     # ── Detect commands phase ────────────────────────────
     build_commands: Optional[dict]  # {install, build, test, lint, ...}
-    commands_source: Optional[str]  # "ci_config" | "haiku_llm" | "ecosystem_default"
+    commands_source: Optional[str]  # "ci_config" | "llm" | "ecosystem_default"
 
     # ── Prepare phase ────────────────────────────────────
     dependency_file_name: Optional[str]
@@ -58,6 +58,16 @@ class PipelineState(TypedDict, total=False):
 
     # ── Security audit ────────────────────────────────────
     audit_results: Optional[list[dict]]  # [{source, status, findings}]
+
+    # ── LLM Intelligence ─────────────────────────────────
+    changelog_risk_summary: Optional[str]  # breaking changes for major bumps
+    code_impact_summary: Optional[str]  # source code usage of major-bumped packages
+    security_priority_summary: Optional[str]  # prioritized fix recommendations
+    failure_diagnosis: Optional[str]  # root cause of build/test failure
+    maintainer_summary: Optional[str]  # maintainer-focused PR review narrative
+    reachability_summary: Optional[str]  # npm/pip CVE reachability from source code
+    config_drift_summary: Optional[str]  # stale configs after dependency updates
+    update_groups: Optional[list[list[dict]]]  # grouped compatible updates
 
     # ── Verification ─────────────────────────────────────
     verification_results: Optional[list[dict]]  # [{check, status, detail}, ...]

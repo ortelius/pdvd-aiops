@@ -7,7 +7,6 @@ and checks for outdated dependencies.
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -211,6 +210,22 @@ def analyze_node(state: PipelineState) -> dict:
         if tracker:
             tracker.record_tool_call("check_outdated")
 
+        # Fill in missing "current" versions from the dependency file.
+        # Some tools (e.g. npm outdated) report current as empty when a package
+        # isn't installed in node_modules, even though it's pinned in package.json.
+        outdated = _fill_missing_versions(outdated, repo_path, plugin, repo_files)
+
+        # Filter out packages where current == latest (not actually outdated).
+        # This happens when npm outdated reports packages where "wanted" differs
+        # from "current" but "latest" is already installed.
+        before_count = len(outdated)
+        outdated = [
+            p for p in outdated
+            if p.get("current", "").lstrip("^~>=v") != p.get("latest", "").lstrip("^~>=v")
+        ]
+        if len(outdated) < before_count:
+            print(f"  [analyze] Filtered {before_count - len(outdated)} already-up-to-date package(s)")
+
         updates = {
             "repo_path": repo_path,
             "repo_python": repo_python,
@@ -244,6 +259,52 @@ def analyze_node(state: PipelineState) -> dict:
     finally:
         if tracker:
             tracker.end_phase()
+
+
+def _fill_missing_versions(
+    outdated: list[dict], repo_path: str, plugin, repo_files: set[str]
+) -> list[dict]:
+    """
+    Fill in missing 'current' versions from the dependency file.
+
+    When a tool like `npm outdated` reports current as empty/N/A (e.g. package
+    not installed in node_modules), we read the actual pinned version from the
+    dependency file (package.json, requirements.txt, etc.).
+    """
+    missing = [p for p in outdated if not p.get("current") or p["current"] == "N/A"]
+    if not missing:
+        return outdated
+
+    # Read and parse the dependency file
+    dep_file = plugin.resolve_dependency_file(repo_files)
+    if not dep_file:
+        return outdated
+
+    dep_path = os.path.join(repo_path, dep_file)
+    if not os.path.isfile(dep_path):
+        return outdated
+
+    try:
+        with open(dep_path, "r") as f:
+            content = f.read()
+        deps = plugin.parse_dependencies(content)
+        version_map = {d.name: d.current for d in deps if d.current}
+    except Exception:
+        return outdated
+
+    # Fill in missing versions
+    filled = 0
+    for pkg in outdated:
+        if not pkg.get("current") or pkg["current"] == "N/A":
+            pinned = version_map.get(pkg["name"], "")
+            if pinned:
+                pkg["current"] = pinned
+                filled += 1
+
+    if filled:
+        print(f"  [analyze] Filled {filled} missing version(s) from {dep_file}")
+
+    return outdated
 
 
 def _clone_repository(repo_url: str) -> str:

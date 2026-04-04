@@ -42,7 +42,8 @@ def route_after_build(state: PipelineState) -> str:
     build_result = state.get("build_result", {})
     if build_result.get("succeeded", False):
         return "test"
-    return "create_issue"
+    # Build failed → LLM analysis for failure diagnosis, then create_issue
+    return "llm_analysis"
 
 
 def route_after_test(state: PipelineState) -> str:
@@ -58,15 +59,16 @@ def route_after_test(state: PipelineState) -> str:
     if retry_count < MAX_RETRIES:
         return "rollback"
 
-    return "create_issue"
+    # Max retries exhausted → LLM analysis for failure diagnosis, then create_issue
+    return "llm_analysis"
 
 
 def route_after_security_audit(state: PipelineState) -> str:
     """After security audit, decide next step."""
-    # If dependency updates were applied earlier, go to PR
+    # If dependency updates were applied earlier, go to LLM analysis then PR
     applied = state.get("applied_updates")
     if applied:
-        return "create_pr"
+        return "llm_analysis"
 
     # If audit found fixable CVEs, apply security fixes
     audit_results = state.get("audit_results") or []
@@ -81,13 +83,28 @@ def route_after_security_audit(state: PipelineState) -> str:
 
 def route_after_security_fixes(state: PipelineState) -> str:
     """After applying security fixes, decide next step based on what happened."""
-    # Real file changes → create PR
+    # Real file changes → LLM analysis then PR
     if state.get("security_fixes_applied"):
-        return "create_pr"
+        return "llm_analysis"
     # Unfixable CVEs with no file changes → create/update tracking issue
     if state.get("unfixable_cves"):
         return "create_issue"
     return "end"
+
+
+def route_after_llm_analysis(state: PipelineState) -> str:
+    """After LLM analysis, route to create_pr or create_issue."""
+    # If we arrived here from the failure path (test failed, max retries)
+    build_result = state.get("build_result") or {}
+    test_result = state.get("test_result") or {}
+    build_failed = build_result and not build_result.get("succeeded", True)
+    test_failed = test_result and not test_result.get("succeeded", True)
+
+    if build_failed or test_failed:
+        return "create_issue"
+
+    # Normal path: updates or security fixes → create PR
+    return "create_pr"
 
 
 def route_after_rollback(state: PipelineState) -> str:

@@ -1,10 +1,10 @@
 """
-Detect Commands node — parses CI config, falls back to single Haiku LLM call.
+Detect Commands node — parses CI config, falls back to single LLM call.
 
 Strategy:
 1. Parse .github/workflows/*.yml to extract build/test commands (0 tokens)
 2. If CI config found → use those commands
-3. If not → single Haiku call with repo evidence (~$0.003)
+3. If not → single LLM call with repo evidence (uses configured LLM_PROVIDER)
 4. Fallback → ecosystem plugin defaults
 """
 
@@ -51,7 +51,7 @@ def detect_commands_node(state: PipelineState) -> dict:
         # Strategy 3: Single LLM call with repo evidence
         commands = _llm_detect_commands(repo_path, package_manager, tracker)
         if commands and (commands.get("build") or commands.get("test")):
-            return {"build_commands": commands, "commands_source": "haiku_llm"}
+            return {"build_commands": commands, "commands_source": "llm"}
 
         # Strategy 4: Ecosystem plugin defaults
         plugin = get_plugin_by_name(package_manager)
@@ -157,9 +157,9 @@ def _llm_detect_commands(
     repo_path: str, package_manager: str, tracker=None
 ) -> Optional[dict]:
     """
-    Use a single Haiku LLM call to detect build/test commands.
+    Use a single LLM call to detect build/test commands.
     Gathers repo evidence and asks the model to identify commands.
-    Cost: ~$0.003
+    Uses the configured LLM_PROVIDER.
     """
     try:
         from src.config.llm import get_llm
@@ -197,7 +197,7 @@ Use null for any command you cannot determine. No explanation."""
             usage = getattr(response, "usage_metadata", None)
             if usage:
                 tracker.record_llm_call(
-                    "claude-haiku-4-5-20251001",
+                    getattr(llm, "model_name", "unknown"),
                     usage.get("input_tokens", 0),
                     usage.get("output_tokens", 0),
                 )

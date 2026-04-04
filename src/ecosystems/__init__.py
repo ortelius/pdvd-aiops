@@ -12,7 +12,6 @@ Adding a new ecosystem = one new file that subclasses EcosystemPlugin.
 """
 
 import importlib
-import json
 import pkgutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
